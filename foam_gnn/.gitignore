@@ -1,0 +1,33 @@
+# --- foam_gnn (self-contained) ---
+
+# Datasets are loaded from a configurable directory at runtime; never commit raw data.
+# (The 5 small sample frames under tests/fixtures/ ARE committed on purpose, for smoke tests.)
+data/
+!tests/fixtures/
+!tests/fixtures/**
+
+# Training artifacts
+checkpoints/
+runs/
+*.pt
+*.ckpt
+wandb/
+
+# Scratch / QC outputs
+dev/
+qc/
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
