@@ -210,3 +210,97 @@ def test_single_frame(results, cfg):
     assert len(result.id_maps) == 1
     assert result.events == []   # no inter-frame events for a single frame
     assert len(result.correspondence) == results[0].n_bubbles
+
+
+# ──────────────────────── B1: T1 detection (deterministic) ─────────────────── #
+# These are real correctness tests on synthetic label maps with a KNOWN swap,
+# not plumbing checks on sparse frames.
+
+from foam_gnn.tracking import (  # noqa: E402
+    _adjacency_lengths, _detect_t1_between, overlay_ids, overlay_events,
+)
+
+
+def _canonical_t1_pair():
+    """Two 20x20 stable-ID maps encoding one textbook T1.
+
+    Before: P(1)|Q(2) share the central vertical film; S(4) top band and R(3)
+    bottom band each border both P and Q. After: P-Q gone, R-S share the central
+    horizontal film; the four ring edges persist.
+    """
+    H = W = 20
+    t = np.zeros((H, W), np.int32)
+    t[:, :10] = 1   # P (left)
+    t[:, 10:] = 2   # Q (right) — shares the central vertical film with P
+    t[:3, :] = 4    # S (top band) borders both P and Q
+    t[17:, :] = 3   # R (bottom band) borders both P and Q
+    t1 = np.zeros((H, W), np.int32)
+    t1[:10, :] = 4  # S (top) — now shares the central horizontal film with R
+    t1[10:, :] = 3  # R (bottom)
+    t1[:, :3] = 1   # P (left band)
+    t1[:, 17:] = 2  # Q (right band)
+    return t, t1
+
+
+def test_detect_single_localized_t1():
+    t, t1 = _canonical_t1_pair()
+    cent = {1: (2, 10), 2: (18, 10), 3: (10, 18), 4: (10, 2)}
+    swaps = _detect_t1_between(_adjacency_lengths(t), _adjacency_lengths(t1),
+                               cent, persist={1, 2, 3, 4}, min_border=3)
+    assert len(swaps) == 1, swaps
+    s = swaps[0]
+    assert set(s["lost"]) == {1, 2}
+    assert set(s["gained"]) == {3, 4}
+    assert s["cluster"] == (1, 2, 3, 4)
+    # location at the cluster centre
+    assert abs(s["cx"] - 10) < 1 and abs(s["cy"] - 10) < 1
+
+
+def test_t1_requires_persistence_of_all_four():
+    """If a bubble of the cluster does not persist, it is not a T1 (it's a T2)."""
+    t, t1 = _canonical_t1_pair()
+    swaps = _detect_t1_between(_adjacency_lengths(t), _adjacency_lengths(t1),
+                               {1: (2, 10), 2: (18, 10), 3: (10, 18), 4: (10, 2)},
+                               persist={1, 2, 3}, min_border=3)   # 4 missing
+    assert swaps == []
+
+
+def test_t1_border_threshold_rejects_flicker():
+    """A 1-px lost edge (below min_border) is not a real lost film → no swap."""
+    t, t1 = _canonical_t1_pair()
+    # widen min_border above the gained R-S border so the genuine swap is gated out
+    swaps = _detect_t1_between(_adjacency_lengths(t), _adjacency_lengths(t1),
+                               {i: (10, 10) for i in (1, 2, 3, 4)},
+                               persist={1, 2, 3, 4}, min_border=999)
+    assert swaps == []
+
+
+def test_no_t1_when_topology_unchanged():
+    t, _ = _canonical_t1_pair()
+    swaps = _detect_t1_between(_adjacency_lengths(t), _adjacency_lengths(t),
+                               {i: (10, 10) for i in (1, 2, 3, 4)},
+                               persist={1, 2, 3, 4}, min_border=3)
+    assert swaps == []
+
+
+# ──────────────────────── visual-audit overlays ───────────────────────────── #
+
+def test_overlay_ids_contract():
+    img = np.full((20, 20), 120, np.uint8)
+    idm = np.zeros((20, 20), np.int32)
+    idm[:10] = 5
+    idm[10:] = 9
+    ov = overlay_ids(img, idm)
+    assert ov.shape == (20, 20, 3) and ov.dtype == np.uint8
+
+
+def test_overlay_events_marks_only_requested_frame():
+    from foam_gnn.tracking import TopologicalEvent
+    img = np.full((40, 40), 100, np.uint8)
+    evs = [TopologicalEvent(2, "T1_swap", (1, 2, 3, 4), {"cx": 20.0, "cy": 20.0})]
+    on = overlay_events(img, evs, frame=2)
+    off = overlay_events(img, evs, frame=3)
+    assert on.shape == (40, 40, 3)
+    # frame 2 draws something (differs from raw); frame 3 draws nothing
+    assert (on != np.dstack([img] * 3)).any()
+    assert (off == np.dstack([img] * 3)).all()

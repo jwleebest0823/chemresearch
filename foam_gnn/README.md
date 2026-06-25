@@ -31,18 +31,44 @@ The pipeline is built to compute and test against the relevant physics:
 
 ---
 
-## Data assumptions (from Step-0 reconnaissance, experiment 1)
+## Dataset structure — 3 independent foams, not 7 experiments
 
-| Property | Value |
-|---|---|
-| Frame size | 1280×1024 (W×H), 8-bit |
-| Channels | stored 3-ch JPEG, **effectively grayscale** (colour = non-physical cast, discarded) |
-| Contrast | low (data in ~[12, 210]); a periodic **~18.3 px grid** is suppressed in preprocessing |
-| Scale / time | **no µm/px** (areas in px², rates in px²/frame); 30 s/frame |
-| Dataset | ≤3 experiments × ~198 frames → **small-data**: leave-one-experiment-out CV |
+The on-disk folders `exp1`…`exp7` are **3 physically independent foams** imaged
+across **7 acquisition sessions**. This is authoritative in
+[`foam_gnn.dataset`](src/foam_gnn/dataset.py) (`FOAM_SESSIONS`, `EXPERIMENTS`),
+the single source of truth for both CV folds and tracking segments.
 
-Adding experiments 2 and 3 is **additive**: drop `data/raw/exp2/`, `exp3/` and
-list them in `DataConfig.experiments`. No code change.
+| Foam | Folders | Frames | Image | Mag | Notes |
+|---|---|---|---|---|---|
+| **A** | `exp1` | 198 | 1024×1280 JPG | M1 | B/W; two 99-frame runs split by a 2.5-min gap |
+| **B** | `exp2` | 103 | **1536×2048 TIF** | ≠M1 | different USB camera; non-physical colour → grayscale |
+| **C** | `exp3`–`exp7` | 5×99 | 1024×1280 JPG | ≈M1 | **ONE raft**, 5 sessions over ~10.7 h on 2026-06-16 |
+
+**Two invariants enforced by `foam_gnn.dataset`:**
+- **CV unit = foam.** Leave-one-foam-out = 3 folds (A, B, C) via
+  `leave_one_foam_out()`. Foam C's five folders must **never** split across
+  train/test — same raft re-imaged ⇒ leakage by construction.
+- **Tracking unit = session.** Each folder is tracked internally only; bubbles
+  are never matched across an inter-session gap (the raft fully reorganizes).
+  Sessions share a common real-time axis from parsed filename timestamps so
+  long-timescale coarsening across C stays measurable.
+
+Filename timestamps: `YYMMDDHHMMSS`+3 (15-digit; A, C) or `YYYYMMDDHHMMSS`+3
+(17-digit; B). Parsed by `dataset.parse_timestamp`.
+
+Other invariants: stored 3-ch but **effectively grayscale** (colour = non-physical
+cast, discarded); low contrast with a periodic **~18.3 px grid** suppressed before
+segmentation (Foam A/C only); **no µm/px** (areas in px², rates in px²/frame).
+
+> **Per-foam segmentation does not transfer for free.** Module-1 params (tuned on
+> Foam A) carry to Foam C (same M1, foam-on-background) but **break on Foam B**:
+> at B's magnification the foam fills the frame (no background → distance-to-edge
+> boundary is undefined) and the thick films shatter. See the Module-2 session
+> notes; Foam B needs its own segmentation regime.
+
+> **Unicode paths:** this repo lives under a non-ASCII path; `cv2.imread` cannot
+> open such files (returns `None`). `io_utils` decodes via `np.fromfile` +
+> `cv2.imdecode`, which is unicode-safe and also reads the Foam B TIFs.
 
 ---
 
@@ -106,20 +132,34 @@ foam_gnn/
 marker-controlled watershed with a swappable backend, a QC overlay, and a
 Plateau (vertex-order/angle) check.
 
-**Tested** (smoke tests on the 5 committed exp1 frames): the module runs
-end-to-end and produces a sane `SegmentationResult` (shapes/dtypes/no-NaN,
-plausible bubble counts ~50–200, foam-area fraction ~20–30 %, ~99 % three-way
-junctions); input guards raise on bad data; backend stubs raise `NotImplementedError`.
+**Implemented (Module 2 — tracking + dataset structure).** Hungarian+drift
+tracking with a **data-driven `max_displacement_px`** (20 px for Foam A);
+rewritten **localized T1 detection** (per-swap, with location and robustness
+gates); T2/birth detection; `dataset.py` as the source of truth for the 3-foam /
+7-session structure (CV-by-foam, track-by-session) with per-experiment shapes.
 
-**NOT yet tested / known to be weak:**
-- The smallest bubbles in dense early frames are **merged/missed** (classical-
-  watershed ceiling on low-contrast brightfield) — motivates the SAM/FoamQuant
-  backend hook.
-- A **single `h_maxima`** value is not optimal across the whole coarsening series.
-- The foam-boundary mask is **slightly generous**; `boundary_erode_px` is a blunt
-  tightening knob.
-- Behaviour on **experiments 2–3** and on **full 198-frame** folders (only 5
-  sparse frames were available during development).
+**Tested** (62 passing): Module-1 smoke tests on the 5 committed frames; dataset
+logic (LOFO folds, C-never-split, timestamp parsing, run-splitting); tracking
+contract + **deterministic T1 unit tests** on a synthetic canonical swap; overlay
+contracts. Real-data tests skip when `data/` is absent (it is gitignored).
+
+**Validated on real data this session** (see
+[`docs/module2_session_notes.md`](docs/module2_session_notes.md)): Foam C is one
+continuous coarsening foam (Spearman(time,count) = −0.97); segmentation transfers
+to A & C but **breaks on Foam B**; large bubbles keep stable IDs across consecutive
+frames.
+
+**NOT yet validated / known to be weak:**
+- **T2/birth rates are flicker-limited** — across thresholds T2 ≈ birth, the
+  signature of Module-1 small-bubble flicker, not real coarsening. Raw T2 counts
+  are not yet a scientific T2 rate.
+- **Foam B has no working segmentation** (different magnification → foam fills the
+  frame, films shatter); needs its own regime.
+- Smallest bubbles in dense early frames are **merged/missed**; a single
+  `h_maxima` is not optimal across the series; the foam-boundary mask is slightly
+  generous.
+- Tracking validated on a 40-frame slice of exp1 only — not the full series, not
+  on B/C consecutive runs.
 
 This project deliberately **fails loud**: bad shapes/dtypes/NaNs raise immediately
 rather than silently producing garbage.

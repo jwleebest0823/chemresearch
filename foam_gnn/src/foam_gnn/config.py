@@ -36,16 +36,31 @@ from pathlib import Path
 class DataConfig:
     """Where frames live and what shape they must be.
 
-    ``data_root`` is expected to contain one subfolder per experiment, so that
-    dropping in experiments 2 and 3 later is purely additive (no refactor):
-    ``data_root/exp1/*.jpg``, ``data_root/exp2/*.jpg``, ...
+    ``data_root`` holds one subfolder per experiment (images may nest one level
+    deeper; :mod:`foam_gnn.io_utils` resolves that).
+
+    PHYSICAL STRUCTURE LIVES ELSEWHERE. The foam->session grouping (CV unit =
+    foam; tracking unit = session) and the **per-experiment image shape /
+    extension** are authoritative in :mod:`foam_gnn.dataset` (``EXPERIMENTS``,
+    ``FOAM_SESSIONS``), NOT here. There is no single global frame size — Foam B
+    is 1536x2048 vs 1024x1280 for A/C — so prefer
+    :func:`foam_gnn.io_utils.load_experiment_frames`, which shape-checks against
+    the correct per-experiment size.
+
+    The fields below are a *fallback* for ad-hoc / fixture loading via
+    :func:`foam_gnn.io_utils.load_frame` when no per-experiment shape is supplied.
     """
 
     data_root: Path = Path("data/raw")
-    experiments: tuple[str, ...] = ("exp1",)   # DECISION: each entry = one LOEO CV fold
+    # DECISION: experiments listed here are for ad-hoc runs; CV folds are built
+    # from foam groups via foam_gnn.dataset.leave_one_foam_out(), never from this
+    # flat tuple (which cannot express that Foam C's 5 sessions must not split).
+    experiments: tuple[str, ...] = ("exp1",)
     frame_glob: str = "*.jpg"
     interval_seconds: float = 30.0
-    expected_hw: tuple[int, int] = (1024, 1280)  # (H, W); asserted on load (fail loud)
+    # Fallback global shape (used only when load_frame is called without an
+    # explicit per-experiment expected_hw). Authoritative shapes: dataset.EXPERIMENTS.
+    expected_hw: tuple[int, int] = (1024, 1280)  # (H, W)
     enforce_shape: bool = True
     microns_per_px: float | None = None          # DECISION: None -> areas in px**2 (no scale in data)
 
@@ -118,10 +133,24 @@ class SegConfig:
 @dataclass(frozen=True)
 class TrackConfig:
     register_drift: bool = True                    # DECISION: foam translates between frames (Step-0)
-    max_displacement_px: float = 25.0              # DECISION: PLACEHOLDER — untunable from 5 sparse frames
+    # DECISION (B2): tuned on the 40-frame consecutive exp1 run. Genuine matched
+    # per-bubble drift (after foam-mask drift registration) is median ~2.6 px,
+    # p95 ~15.6 px; inter-bubble centre spacing is ~50 px. 20 px ≈ p95+margin and
+    # < half the spacing, so matches capture real motion without jumping to a
+    # neighbour. Looser gates (≥40) inflate T1 by admitting cross-neighbour
+    # matches (T1: 28@20 → 153@64). Foam A units (px); RE-TUNE per foam/mag.
+    max_displacement_px: float = 20.0
     area_ratio_tol: float = 0.5                    # gate on |log(A_t / A_{t+1})|
     cost_w_centroid: float = 1.0                   # DECISION: matching-cost weights
     cost_w_area: float = 0.5
+    # ── T1 (neighbour-swap) detection (B1) ──────────────────────────────────
+    # DECISION: a film edge is only "real" once its shared border exceeds this;
+    # used to gate both the lost (P-Q) and gained (R-S) edge of a candidate swap,
+    # rejecting 1-2 px adjacency flicker from watershed jitter.
+    t1_min_border_px: int = 5
+    # DECISION: require the newly-formed R-S edge to survive this many additional
+    # frames before accepting the T1 (0 disables). Rejects single-frame flicker.
+    t1_confirm_frames: int = 1
 
 
 # --------------------------------------------------------------------------- #
