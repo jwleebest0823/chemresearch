@@ -18,6 +18,11 @@ dev/
 qc/
 *.tmp
 
+# Generated CSV deliverables (data products derived from gitignored data/).
+# The format doc lives in export_csv.py (_README) and is regenerated as
+# exports/README_csv.md by the exporter.
+exports/
+
 # Python
 __pycache__/
 *.py[cod]

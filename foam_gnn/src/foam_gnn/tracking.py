@@ -103,14 +103,23 @@ class TrackingResult:
         Topological events sorted by frame (ascending).
     correspondence:
         Tidy DataFrame, one row per (frame, bubble) — see module docstring.
+        ``cx``/``cy`` are **native** per-frame pixel coordinates.
     n_tracks:
         Total number of unique stable bubble IDs issued.
+    frame_offsets:
+        Per-frame cumulative drift ``(off_x, off_y)`` that maps a frame's native
+        pixel coordinates into the **common (frame-0) coordinate frame**:
+        ``registered = native + offset``. ``frame_offsets[0] == (0.0, 0.0)``; each
+        entry accumulates the per-step foam-mask drift Module 2 already computes
+        for matching. All zeros when ``cfg.track.register_drift`` is False. Length
+        equals ``len(id_maps)``.
     """
 
     id_maps: list[np.ndarray]
     events: list[TopologicalEvent]
     correspondence: pd.DataFrame
     n_tracks: int
+    frame_offsets: list[tuple[float, float]] = field(default_factory=list)
 
 
 # ──────────────────────────── internals ───────────────────────────────────── #
@@ -346,6 +355,11 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
     centroids_per_frame: list[dict[int, tuple[float, float]]] = [
         {p["label"]: (p["cx"], p["cy"]) for p in props0}
     ]
+    # cumulative drift mapping each frame's native coords → frame-0 coords
+    # (registered = native + offset); accumulates the same per-step drift used
+    # for matching, so it is the single source of truth (no re-estimation).
+    frame_offsets: list[tuple[float, float]] = [(0.0, 0.0)]
+    cum_off_x, cum_off_y = 0.0, 0.0
     for p in props0:
         corr_rows.append({
             "frame": 0, "bubble_id": local_to_stable[p["label"]],
@@ -361,6 +375,9 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
         drift_dy, drift_dx = 0.0, 0.0
         if tcfg.register_drift:
             drift_dy, drift_dx = _estimate_drift(results[t - 1].foam_mask, results[t].foam_mask)
+        cum_off_x += drift_dx
+        cum_off_y += drift_dy
+        frame_offsets.append((cum_off_x, cum_off_y))
 
         label_map, unmatched_prev, unmatched_curr = _match_frame_pair(
             props_prev, props_curr, drift_dy, drift_dx, tcfg
@@ -447,6 +464,7 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
         events=events,
         correspondence=pd.DataFrame(corr_rows),
         n_tracks=id_next - 1,
+        frame_offsets=frame_offsets,
     )
 
 

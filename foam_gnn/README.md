@@ -135,13 +135,27 @@ Plateau (vertex-order/angle) check.
 **Implemented (Module 2 — tracking + dataset structure).** Hungarian+drift
 tracking with a **data-driven `max_displacement_px`** (20 px for Foam A);
 rewritten **localized T1 detection** (per-swap, with location and robustness
-gates); T2/birth detection; `dataset.py` as the source of truth for the 3-foam /
-7-session structure (CV-by-foam, track-by-session) with per-experiment shapes.
+gates); T2/birth detection; per-frame cumulative-drift `frame_offsets` (common
+coordinate frame); `dataset.py` as the source of truth for the 3-foam / 7-session
+structure (CV-by-foam, track-by-session) with per-experiment shapes.
 
-**Tested** (62 passing): Module-1 smoke tests on the 5 committed frames; dataset
-logic (LOFO folds, C-never-split, timestamp parsing, run-splitting); tracking
-contract + **deterministic T1 unit tests** on a synthetic canonical swap; overlay
-contracts. Real-data tests skip when `data/` is absent (it is gitignored).
+**Implemented (Module 3 — graph construction + CSV export).** Per-frame NetworkX
+graphs (nodes = bubbles, edges = shared films) with node features (area, n_sides,
+registered centroid, circularity, perimeter, distance-to-evap-edge) and the three
+mentor-spec edge features (`contact_line_length`, `squeezing_strain`,
+`distance_to_evap_edge`); lazy/optional PyTorch-Geometric `Data` conversion (no
+torch needed for the base path). Long-format `nodes.csv` / `edges.csv` export
+(`foam_gnn.export_csv`) per foam (Foam C per session; Foam B excluded) with a
+disappear/coalesce classifier, a `event_confidence` flag, and a `README_csv.md`
+that carries the **preliminary-event** caveat with the data.
+
+**Tested** (74 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
+dataset logic (LOFO, timestamp parsing, run-splitting); tracking contract +
+deterministic T1 unit tests; **graph feature math on synthetic maps**
+(contact-length, n_sides, circularity, strain, dist sampling, registered coords);
+**export long-format invariants** (right-censored disappearance, event on final
+frame only) + a real-frames Foam-A smoke. Real-data tests skip when `data/` is
+absent (it is gitignored).
 
 **Validated on real data this session** (see
 [`docs/module2_session_notes.md`](docs/module2_session_notes.md)): Foam C is one
@@ -150,16 +164,23 @@ to A & C but **breaks on Foam B**; large bubbles keep stable IDs across consecut
 frames.
 
 **NOT yet validated / known to be weak:**
-- **T2/birth rates are flicker-limited** — across thresholds T2 ≈ birth, the
-  signature of Module-1 small-bubble flicker, not real coarsening. Raw T2 counts
-  are not yet a scientific T2 rate.
+- **Event labels (disappear/coalesce) are PRELIMINARY** — flicker-limited (T2 ≈
+  birth across thresholds), so raw event counts are not a scientific rate. The
+  `event_confidence` flag is a transparent heuristic, not calibrated. This caveat
+  ships in `README_csv.md` next to the data.
+- **`squeezing_strain` / `circularity` degrade for irregular bubbles** — the
+  effective-circular radius √(A/π) and the Crofton perimeter are poor for ragged or
+  elongated watershed regions (large-magnitude negative strain, low circularity
+  correlate with these). Geometric features (area, contact-length) are unaffected.
 - **Foam B has no working segmentation** (different magnification → foam fills the
-  frame, films shatter); needs its own regime.
+  frame, films shatter); excluded from the export.
 - Smallest bubbles in dense early frames are **merged/missed**; a single
   `h_maxima` is not optimal across the series; the foam-boundary mask is slightly
   generous.
-- Tracking validated on a 40-frame slice of exp1 only — not the full series, not
-  on B/C consecutive runs.
+- Tracking validated on a 40-frame slice of exp1; the export is demonstrated on
+  Foam A (40 frames) + one Foam C session. **`track_sequence` is slow on dense
+  full sessions** (recomputes per-bubble masks each frame, O(labels·pixels)) — fine
+  for the demo, but the full multi-session batch needs a vectorized rewrite.
 
 This project deliberately **fails loud**: bad shapes/dtypes/NaNs raise immediately
 rather than silently producing garbage.

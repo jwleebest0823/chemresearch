@@ -158,10 +158,27 @@ class TrackConfig:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class GraphConfig:
+    # Node/edge feature names == the CSV column names (single source of naming).
     node_features: tuple[str, ...] = (
-        "area", "n_sides", "cx", "cy", "circularity", "perimeter", "dist_to_edge",
+        "area", "n_sides", "centroid_x", "centroid_y",
+        "circularity", "perimeter", "distance_to_evap_edge",
+    )
+    edge_features: tuple[str, ...] = (
+        "contact_line_length", "squeezing_strain", "distance_to_evap_edge",
     )
     min_shared_border_px: int = 3                  # DECISION: below this two regions are not "neighbours"
+    # ── disappear-vs-coalesce classification + event confidence (Module 3) ───
+    # DECISION: a T2 death is "coalesce" (vs "disappear") when one surviving,
+    # previously-adjacent neighbour absorbs at least this fraction of the vanished
+    # bubble's last footprint AND grows by ~its area. Overlap is in native pixels
+    # (drift between consecutive frames is small, ~2.6 px median).
+    coalesce_min_overlap_frac: float = 0.5
+    # DECISION: event_confidence is a transparent heuristic, NOT calibrated. A death
+    # is "low" confidence (likely segmentation flicker) when the bubble was seen for
+    # <= this many frames or its last area was below the flicker-area floor; else
+    # "medium". ALL event labels remain PRELIMINARY (see README_csv.md).
+    event_low_conf_max_lifetime: int = 2
+    event_low_conf_area_px: int = 30
 
 
 # --------------------------------------------------------------------------- #
