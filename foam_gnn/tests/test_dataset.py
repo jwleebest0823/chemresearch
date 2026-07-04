@@ -129,3 +129,16 @@ def test_exp1_has_internal_gap_and_99_run():
     row = df[df["exp"] == "exp1"].iloc[0]
     assert row["n_internal_gaps"] >= 1
     assert row["longest_run"] == 99
+
+
+# --------------------------- exp2 removal tolerance --------------------------- #
+def test_available_experiments_tolerates_missing_folder(tmp_path):
+    """available_experiments() skips a removed folder (e.g. exp2/Foam B scrapped)."""
+    from foam_gnn.dataset import available_experiments
+    for e in ("exp1", "exp3"):                     # create exp1 + exp3, NOT exp2
+        d = tmp_path / e / "sub"
+        d.mkdir(parents=True)
+        (d / f"x{EXPERIMENTS[e].ext}").write_bytes(b"x")
+    avail = available_experiments(tmp_path)
+    assert "exp2" not in avail                     # absent folder skipped, no error
+    assert "exp1" in avail and "exp3" in avail

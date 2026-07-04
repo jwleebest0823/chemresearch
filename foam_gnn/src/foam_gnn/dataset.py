@@ -67,6 +67,7 @@ __all__ = [
     "foam_of",
     "experiments_of_foam",
     "all_experiments",
+    "available_experiments",
     "leave_one_foam_out",
     "parse_timestamp",
     "experiment_dir",
@@ -168,6 +169,23 @@ def experiments_of_foam(foam: str) -> tuple[str, ...]:
 def all_experiments() -> tuple[str, ...]:
     """All experiment names in canonical (foam, then session) order."""
     return _flat
+
+
+def available_experiments(data_root: str | Path, exps: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    """Registry experiments whose data folder actually exists under ``data_root``.
+
+    Tolerant of a **removed** folder (e.g. exp2/Foam B is being scrapped): the
+    registry keeps its metadata, but callers that iterate real data should use
+    this so a missing folder is skipped, not a fail-loud error. Preserves order.
+    """
+    out: list[str] = []
+    for e in (exps or all_experiments()):
+        try:
+            experiment_dir(data_root, e)
+        except (FileNotFoundError, ValueError):
+            continue
+        out.append(e)
+    return tuple(out)
 
 
 def leave_one_foam_out() -> list[dict]:

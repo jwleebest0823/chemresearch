@@ -151,6 +151,36 @@ class TrackConfig:
     # DECISION: require the newly-formed R-S edge to survive this many additional
     # frames before accepting the T1 (0 disables). Rejects single-frame flicker.
     t1_confirm_frames: int = 1
+    # ── Merge handling (mentor's rule: bubbles never appear; a merge inherits an
+    #    existing ID, never a new one) ─────────────────────────────────────────
+    # DECISION (D3, mentor's call): which parent's ID a merged region inherits.
+    #   "max"        -> highest bubble_id among parents (mentor's literal rule;
+    #                   unambiguous for equal-size merges, but can relabel a large
+    #                   continuous bubble to a small absorbed bubble's higher ID).
+    #   "keep_larger"-> the largest-area parent's ID (preserves physical continuity
+    #                   of the big bubble). Both paths are implemented; default
+    #                   "max" per the mentor's stated rule until he confirms.
+    merge_id_rule: str = "max"                     # {"max", "keep_larger"}
+    # DECISION: a frame-t bubble is a "parent" of a frame-(t+1) region when at
+    # least this fraction of the PARENT's footprint flows into that region. On the
+    # parent's fraction (not the region's) so incidental boundary overlap from a
+    # neighbour does not manufacture a spurious parent. >=2 parents => merge.
+    merge_overlap_frac: float = 0.5
+    # DECISION (D2a): resurrection window for MERGE-flicker (a thin film that
+    # momentarily fails to segment, faking a merge that then re-splits). A merged
+    # cluster stays reconcilable for this many frames; on re-split its members
+    # reclaim their EXISTING IDs instead of minting new ones. TUNED on real Foam-A
+    # merge-flicker durations (dev/equiv_check-style measurement): observed with a
+    # wide window, durations are 44% at 1 frame, 69% ≤2, with a thin tail to ~8.
+    # The 1-frame film failure is the physical mechanism; durations ≥3 are more
+    # likely late genuine re-splits than momentary flicker, so W=2 covers the
+    # flicker peak without reconciling long-lived merges (raw p95≈7 deliberately
+    # NOT used — those long events risk undoing real merges).
+    merge_resurrect_window: int = 2
+    # DECISION (D2b): a resurrection is flagged AMBIGUOUS (silent-corruption risk)
+    # when the 2nd-best dormant candidate's overlap is within this fraction of the
+    # best (i.e. best is not clearly best). Counted and reported, not silently used.
+    merge_ambiguous_frac: float = 0.2
 
 
 # --------------------------------------------------------------------------- #

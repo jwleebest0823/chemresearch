@@ -139,6 +139,22 @@ gates); T2/birth detection; per-frame cumulative-drift `frame_offsets` (common
 coordinate frame); `dataset.py` as the source of truth for the 3-foam / 7-session
 structure (CV-by-foam, track-by-session) with per-experiment shapes.
 
+**Implemented (Module 2 — merge rule: bubbles never appear).** A merge (a frame-t+1
+region with ≥2 genealogy parents) now **inherits an existing bubble ID**
+(`merge_id_rule`: `"max"` per the mentor, or `"keep_larger"`) instead of minting a
+new one — the old birth-on-merge behaviour is gone. A merge-flicker (a film that
+briefly fails to segment, faking a merge that re-splits) is reconciled within a
+data-tuned window (`merge_resurrect_window=2`, from the Foam-A flicker
+distribution) so the re-split reclaims the existing IDs, not new ones.
+`TrackingResult.diagnostics` reports merge/flicker/birth counts, ambiguous
+resurrections, and the invariant-B check. **Honest scope:** this fixes
+*merge-induced* new IDs only. On Foam A the merge mechanism is provably fixed (0 of
+346 merges mint a new ID; a real 261+262→262 coalescence is confirmed by eye), but
+**invariant B — max ID ≤ frame-0 max — still does NOT hold**, because ~600 new IDs
+come from **segmentation reorganization** births (a region overlapping many
+predecessors at <50% each; 15/20 frame-1 births have no ≥50% parent), which is a
+segmentation-stability problem this fix does not address. See the session notes.
+
 **Implemented (Module 3 — graph construction + CSV export).** Per-frame NetworkX
 graphs (nodes = bubbles, edges = shared films) with node features (area, n_sides,
 registered centroid, circularity, perimeter, distance-to-evap-edge) and the three
@@ -149,13 +165,12 @@ torch needed for the base path). Long-format `nodes.csv` / `edges.csv` export
 disappear/coalesce classifier, a `event_confidence` flag, and a `README_csv.md`
 that carries the **preliminary-event** caveat with the data.
 
-**Tested** (74 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
-dataset logic (LOFO, timestamp parsing, run-splitting); tracking contract +
-deterministic T1 unit tests; **graph feature math on synthetic maps**
-(contact-length, n_sides, circularity, strain, dist sampling, registered coords);
-**export long-format invariants** (right-censored disappearance, event on final
-frame only) + a real-frames Foam-A smoke. Real-data tests skip when `data/` is
-absent (it is gitignored).
+**Tested** (78 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
+dataset logic (LOFO, timestamp parsing, run-splitting, exp2-removal tolerance);
+tracking contract + deterministic T1 **and merge** unit tests (merge inherits
+max/keep-larger, no birth, no new ID, flicker re-split reclaims both IDs); **graph
+feature math on synthetic maps**; **export long-format invariants** + a real-frames
+Foam-A smoke. Real-data tests skip when `data/` is absent (it is gitignored).
 
 **Validated on real data this session** (see
 [`docs/module2_session_notes.md`](docs/module2_session_notes.md)): Foam C is one
@@ -164,6 +179,15 @@ to A & C but **breaks on Foam B**; large bubbles keep stable IDs across consecut
 frames.
 
 **NOT yet validated / known to be weak:**
+- **Invariant B (max ID ≤ frame-0 max) does NOT hold on Foam A** — but the cause is
+  **segmentation reorganization**, not merges. The merge fix eliminates
+  merge-induced new IDs (verified: 0 merges mint one); the residual ~600 new IDs are
+  reorganization/flicker births the merge guard is explicitly not designed to catch.
+  Making invariant B hold requires **segmentation-stability** work (fewer spurious
+  splits/reappearances), not more tracker logic.
+- **Some detected merges are edge artifacts** — merges near the foam boundary are
+  contaminated by the (known) unstable boundary mask; interior merges are reliable.
+  Treat merge/coalesce counts as preliminary; audit by eye near the edge.
 - **Event labels (disappear/coalesce) are PRELIMINARY** — flicker-limited (T2 ≈
   birth across thresholds), so raw event counts are not a scientific rate. The
   `event_confidence` flag is a transparent heuristic, not calibrated. This caveat

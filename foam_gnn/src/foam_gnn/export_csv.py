@@ -42,7 +42,7 @@ import pandas as pd
 from .config import PipelineConfig
 from .graph import build_session_graphs
 from .segmentation import SegmentationResult
-from .tracking import TrackingResult, _adjacency_lengths
+from .tracking import TrackingResult
 
 __all__ = [
     "NODE_COLUMNS",
@@ -69,18 +69,21 @@ def classify_deaths(
     tracking: TrackingResult,
     cfg: PipelineConfig,
 ) -> dict[tuple[int, int], dict]:
-    """Classify each T2 death as ``disappear`` or ``coalesce`` with a confidence.
+    """Attach a death label to each bubble's final frame, from the tracker's events.
 
-    Heuristic (``# DECISION``): for a bubble ``b`` last seen at frame ``t-1`` and
-    absent at ``t``, look at which surviving stable id covers ``b``'s last
-    footprint in frame ``t``. If a single, previously-adjacent neighbour ``s``
-    covers ≥ ``coalesce_min_overlap_frac`` of that footprint **and** grew from
-    ``t-1`` to ``t``, label ``coalesce`` (absorbed into ``s``); otherwise
-    ``disappear``. Overlap is in native pixels (small inter-frame drift ignored).
+    The Module-2 tracker now distinguishes the two death modes directly (it no
+    longer mints a new ID at a merge — see ``TrackConfig.merge_id_rule``), so this
+    is a thin adapter, NOT a re-derivation:
 
-    ``event_confidence`` is ``low`` when the bubble's lifetime ≤
-    ``event_low_conf_max_lifetime`` or its last area < ``event_low_conf_area_px``
-    (both flicker-prone), else ``medium``. NOT calibrated.
+    * ``merge`` event  → each merged-away parent gets ``event="coalesce"`` with
+      ``absorber_id`` = the surviving (inheriting) bubble.
+    * ``T2_disappear`` → ``event="disappear"``.
+
+    ``event_confidence`` (``low``/``medium``) is a transparent, uncalibrated flag:
+    ``low`` when the bubble's lifetime ≤ ``event_low_conf_max_lifetime`` or its last
+    area < ``event_low_conf_area_px`` (both flicker-prone). All labels remain
+    PRELIMINARY — segmentation reorganization still dominates the churn (see
+    README_csv.md).
 
     Returns
     -------
@@ -89,41 +92,33 @@ def classify_deaths(
     """
     gcfg = cfg.graph
     corr = tracking.correspondence
-    # lifetime (frames present) and per-(frame,id) area for quick lookup
     lifetime = corr[corr["bubble_id"] > 0].groupby("bubble_id")["frame"].nunique().to_dict()
     area_at = {(int(r.frame), int(r.bubble_id)): float(r.area_px)
                for r in corr.itertuples() if int(r.bubble_id) > 0}
 
+    def _confidence(pid: int, last_frame: int) -> str:
+        last_area = area_at.get((last_frame, pid), 0.0)
+        if lifetime.get(pid, 0) <= gcfg.event_low_conf_max_lifetime \
+                or last_area < gcfg.event_low_conf_area_px:
+            return "low"
+        return "medium"
+
     out: dict[tuple[int, int], dict] = {}
     for e in tracking.events:
-        if e.kind != "T2_disappear":
-            continue
-        b = int(e.bubble_ids[0])
-        t_last = int(e.meta.get("last_seen_frame", e.frame - 1))
-        t = t_last + 1
-        if not (0 <= t_last < len(tracking.id_maps) and t < len(tracking.id_maps)):
-            continue
-        foot = tracking.id_maps[t_last] == b
-        area_b = int(foot.sum())
-        label, absorber = "disappear", None
-        if area_b > 0:
-            covering = tracking.id_maps[t][foot]
-            covering = covering[covering > 0]
-            if covering.size:
-                vals, counts = np.unique(covering, return_counts=True)
-                s = int(vals[counts.argmax()])
-                overlap_frac = float(counts.max()) / area_b
-                adj_prev = _adjacency_lengths(tracking.id_maps[t_last])
-                was_adjacent = frozenset((b, s)) in adj_prev
-                grew = area_at.get((t, s), 0.0) > area_at.get((t_last, s), 0.0)
-                if overlap_frac >= gcfg.coalesce_min_overlap_frac and was_adjacent and grew:
-                    label, absorber = "coalesce", s
-        last_area = area_at.get((t_last, b), float(area_b))
-        conf = ("low"
-                if lifetime.get(b, 0) <= gcfg.event_low_conf_max_lifetime
-                or last_area < gcfg.event_low_conf_area_px
-                else "medium")
-        out[(t_last, b)] = {"event": label, "event_confidence": conf, "absorber_id": absorber}
+        if e.kind == "merge":
+            surv = int(e.meta["survivor"])
+            last_frame = int(e.meta["last_seen_frame"])
+            for pid in e.meta["merged_ids"]:
+                pid = int(pid)
+                out[(last_frame, pid)] = {"event": "coalesce",
+                                          "event_confidence": _confidence(pid, last_frame),
+                                          "absorber_id": surv}
+        elif e.kind == "T2_disappear":
+            pid = int(e.bubble_ids[0])
+            last_frame = int(e.meta.get("last_seen_frame", e.frame - 1))
+            out[(last_frame, pid)] = {"event": "disappear",
+                                      "event_confidence": _confidence(pid, last_frame),
+                                      "absorber_id": None}
     return out
 
 

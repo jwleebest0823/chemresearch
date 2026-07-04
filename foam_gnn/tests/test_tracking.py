@@ -25,7 +25,7 @@ from foam_gnn.tracking import (
     track_sequence,
 )
 
-_VALID_KINDS = {"T2_disappear", "birth", "T1_swap"}
+_VALID_KINDS = {"T2_disappear", "birth", "T1_swap", "merge"}
 _CORR_COLS = {"frame", "bubble_id", "label_in_frame", "area_px", "cx", "cy"}
 
 
@@ -304,3 +304,63 @@ def test_overlay_events_marks_only_requested_frame():
     # frame 2 draws something (differs from raw); frame 3 draws nothing
     assert (on != np.dstack([img] * 3)).any()
     assert (off == np.dstack([img] * 3)).all()
+
+
+# ──────────────────────── merge fix (deterministic) ───────────────────────── #
+# Mentor's rule: bubbles never appear — a merge inherits an EXISTING id (never a
+# new one). These assert the rule on synthetic frames with KNOWN ids.
+
+import dataclasses as _dc                                        # noqa: E402
+from scipy import ndimage as _ndi                                # noqa: E402
+
+
+def _seg_from(labels: np.ndarray) -> SegmentationResult:
+    labels = labels.astype(np.int32)
+    foam = _ndi.binary_fill_holes(labels > 0)
+    dist = _ndi.distance_transform_edt(foam).astype(np.float32)
+    return SegmentationResult(labels, foam, dist, int(labels.max()))
+
+
+def _merge_seq(persist: int = 2, w1: int = 15) -> list:
+    """Bubbles 1 (left, width ``w1``) & 2 (right) merge into one region for
+    ``persist`` frames after the initial two-bubble frame."""
+    two = np.zeros((24, 40), np.int32)
+    two[4:20, 4:4 + w1] = 1
+    two[4:20, 4 + w1:36] = 2
+    one = np.zeros((24, 40), np.int32)
+    one[4:20, 4:36] = 1
+    return [_seg_from(two)] + [_seg_from(one)] * persist
+
+
+def test_merge_inherits_max_no_birth():
+    tr = track_sequence(_merge_seq(), PipelineConfig())              # rule="max"
+    ids = [sorted(set(np.unique(m).tolist()) - {0}) for m in tr.id_maps]
+    assert ids == [[1, 2], [2], [2]]                                # survivor = max(1, 2) = 2
+    assert all(e.kind != "birth" for e in tr.events)                # a merge never births
+    assert tr.diagnostics["max_bubble_id"] == 2                     # no new ID minted
+    assert tr.diagnostics["frame0_max_id"] == 2
+    assert tr.diagnostics["invariant_B_holds"]
+    merges = [e for e in tr.events if e.kind == "merge"]
+    assert len(merges) == 1
+    assert merges[0].meta["survivor"] == 2 and merges[0].meta["merged_ids"] == (1,)
+
+
+def test_merge_keep_larger_rule():
+    cfg = PipelineConfig(track=_dc.replace(PipelineConfig().track, merge_id_rule="keep_larger"))
+    tr = track_sequence(_merge_seq(w1=24), cfg)                     # bubble 1 has the larger area
+    assert sorted(set(np.unique(tr.id_maps[-1]).tolist()) - {0}) == [1]   # larger parent survives
+    assert all(e.kind != "birth" for e in tr.events)
+
+
+def test_merge_flicker_resurrection_no_new_id():
+    two = np.zeros((24, 40), np.int32)
+    two[4:20, 4:19] = 1
+    two[4:20, 19:36] = 2
+    one = np.zeros((24, 40), np.int32)
+    one[4:20, 4:36] = 1
+    tr = track_sequence([_seg_from(two), _seg_from(one), _seg_from(two)], PipelineConfig())
+    ids = [sorted(set(np.unique(m).tolist()) - {0}) for m in tr.id_maps]
+    assert ids == [[1, 2], [2], [1, 2]]                            # re-split restores BOTH ids
+    assert all(e.kind != "birth" for e in tr.events)               # flicker mints no new id
+    assert tr.diagnostics["invariant_B_holds"]
+    assert tr.diagnostics["n_split_reconciled"] >= 1

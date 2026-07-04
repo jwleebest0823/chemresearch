@@ -85,7 +85,7 @@ class TopologicalEvent:
     """
 
     frame: int                   # frame index (0-based) where the event is observed
-    kind: str                    # "T2_disappear" | "birth" | "T1_swap"
+    kind: str                    # "T2_disappear" | "birth" | "T1_swap" | "merge"
     bubble_ids: tuple[int, ...]  # stable IDs of involved bubbles
     meta: dict = field(default_factory=dict)
 
@@ -106,6 +106,13 @@ class TrackingResult:
         ``cx``/``cy`` are **native** per-frame pixel coordinates.
     n_tracks:
         Total number of unique stable bubble IDs issued.
+    diagnostics:
+        Merge-fix counters: ``n_merge_regions`` (regions with ≥2 parents),
+        ``n_split_reconciled`` / ``flicker_durations`` (merge-flickers caught),
+        ``n_resurrections``, ``n_ambiguous_resurrections`` (silent-corruption
+        risks), ``n_births_remaining`` (segmentation-split/reorganization births —
+        NOT fixed by the merge guard), ``n_merge_events``, ``frame0_max_id``,
+        ``max_bubble_id`` and ``invariant_B_holds`` (max ID ≤ frame-0 max).
     frame_offsets:
         Per-frame cumulative drift ``(off_x, off_y)`` that maps a frame's native
         pixel coordinates into the **common (frame-0) coordinate frame**:
@@ -120,26 +127,73 @@ class TrackingResult:
     correspondence: pd.DataFrame
     n_tracks: int
     frame_offsets: list[tuple[float, float]] = field(default_factory=list)
+    diagnostics: dict = field(default_factory=dict)
 
 
 # ──────────────────────────── internals ───────────────────────────────────── #
 
-def _bubble_props(seg: SegmentationResult) -> list[dict]:
-    """Extract ``{label, cx, cy, area}`` for every bubble in *seg*."""
-    labels = seg.labels
-    unique = np.unique(labels)
-    unique = unique[unique > 0]
+def _coord_grids(shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Flattened row (y) and column (x) coordinate arrays for a frame shape.
+
+    Shared across frames of one session (constant shape) so the per-frame
+    property extraction avoids rebuilding them. Returns ``(rr, cc)`` each
+    ``float64 (H*W,)`` in row-major (C) order.
+    """
+    h, w = shape
+    rr = np.repeat(np.arange(h, dtype=np.float64), w)
+    cc = np.tile(np.arange(w, dtype=np.float64), h)
+    return rr, cc
+
+
+def _props_from_labels(
+    labels: np.ndarray,
+    rr: np.ndarray | None = None,
+    cc: np.ndarray | None = None,
+) -> list[dict]:
+    """Vectorized ``{label, cx, cy, area}`` for every bubble in a label map.
+
+    Replaces the per-label boolean-mask loop with three ``np.bincount`` passes
+    (area, Σx, Σy) over the flattened labels — one O(pixels) sweep instead of
+    O(labels × pixels). Output is **bit-identical** to the old per-label
+    ``xs.mean()`` / ``mask.sum()``: coordinate sums are integer-valued and stay
+    below 2**53, so they are exact in float64 regardless of summation order, and
+    the final ``Σx / area`` division has identical operands. Labels are returned
+    in ascending order (matching ``np.unique``).
+
+    Parameters
+    ----------
+    labels : int (H, W)
+        Label map (0 = background). ``rr``/``cc`` are the flattened coordinate
+        grids from :func:`_coord_grids`; rebuilt internally if absent or mismatched.
+    """
+    flat = labels.ravel()
+    if flat.size == 0:
+        return []
+    n = int(flat.max())
+    if n == 0:
+        return []
+    if rr is None or cc is None or rr.size != flat.size:
+        rr, cc = _coord_grids(labels.shape)
+    counts = np.bincount(flat, minlength=n + 1)
+    sum_x = np.bincount(flat, weights=cc, minlength=n + 1)
+    sum_y = np.bincount(flat, weights=rr, minlength=n + 1)
+    present = np.nonzero(counts)[0]
+    present = present[present > 0]            # labels > 0, ascending (== np.unique)
     rows: list[dict] = []
-    for lbl in unique:
-        mask = labels == lbl
-        ys, xs = np.nonzero(mask)
+    for lbl in present.tolist():
+        area = int(counts[lbl])
         rows.append({
             "label": int(lbl),
-            "cx": float(xs.mean()),
-            "cy": float(ys.mean()),
-            "area": int(mask.sum()),
+            "cx": float(sum_x[lbl] / area),
+            "cy": float(sum_y[lbl] / area),
+            "area": area,
         })
     return rows
+
+
+def _bubble_props(seg: SegmentationResult) -> list[dict]:
+    """Extract ``{label, cx, cy, area}`` for every bubble in *seg* (vectorized)."""
+    return _props_from_labels(seg.labels)
 
 
 def _estimate_drift(mask_t: np.ndarray, mask_t1: np.ndarray) -> tuple[float, float]:
@@ -171,6 +225,13 @@ def _adjacency_lengths(labels: np.ndarray) -> dict[frozenset, int]:
     -------
     dict[frozenset[int], int]
         ``{frozenset({a, b}): border_length_px}``.
+
+    NOTE: deliberately NOT vectorized. It is not on the O(labels × pixels) hot
+    path (called once per frame, not per label), and its exact frozenset-key
+    construction / dict-insertion order is depended upon downstream: the T1
+    detector renders ``lost_pair``/``gained_pair`` via ``tuple(frozenset_key)``,
+    whose element order can flip for hash-colliding labels if the key is built
+    differently. Keeping this original preserves byte-identical event output.
     """
     counts: dict[frozenset, int] = {}
     for a, b in (
@@ -218,21 +279,22 @@ def _match_frame_pair(
 
     n, m = len(props_t), len(props_t1)
     INF = 1e9
+    # Vectorized cost matrix (bit-identical to the scalar double loop, element for
+    # element: same subtraction order, same hypot/log/division, same gates).
+    cx_t = np.array([p["cx"] for p in props_t], dtype=np.float64)
+    cy_t = np.array([p["cy"] for p in props_t], dtype=np.float64)
+    a_t = np.array([p["area"] for p in props_t], dtype=np.float64)
+    cx_j = np.array([p["cx"] for p in props_t1], dtype=np.float64) + drift_dx   # → t coords
+    cy_j = np.array([p["cy"] for p in props_t1], dtype=np.float64) + drift_dy
+    a_j = np.array([p["area"] for p in props_t1], dtype=np.float64)
+
+    dist = np.hypot(cx_t[:, None] - cx_j[None, :], cy_t[:, None] - cy_j[None, :])
+    log_ratio = np.abs(np.log(a_t[:, None] / np.maximum(a_j[None, :], 1.0)))
     cost = np.full((n, m), INF)
-    for i, pi in enumerate(props_t):
-        for j, pj in enumerate(props_t1):
-            cx_j = pj["cx"] + drift_dx          # bring t+1 centroid into t coords
-            cy_j = pj["cy"] + drift_dy
-            dist = float(np.hypot(pi["cx"] - cx_j, pi["cy"] - cy_j))
-            if dist > cfg.max_displacement_px:
-                continue
-            log_ratio = abs(float(np.log(pi["area"] / max(pj["area"], 1))))
-            if log_ratio > cfg.area_ratio_tol:
-                continue
-            cost[i, j] = (
-                cfg.cost_w_centroid * dist / max(cfg.max_displacement_px, 1e-9)
-                + cfg.cost_w_area * log_ratio
-            )
+    ok = (dist <= cfg.max_displacement_px) & (log_ratio <= cfg.area_ratio_tol)
+    vals = (cfg.cost_w_centroid * dist / max(cfg.max_displacement_px, 1e-9)
+            + cfg.cost_w_area * log_ratio)
+    cost[ok] = vals[ok]
 
     row_ind, col_ind = linear_sum_assignment(cost)
     label_map: dict[int, int] = {}
@@ -249,11 +311,90 @@ def _match_frame_pair(
 
 
 def _remap(labels: np.ndarray, local_to_stable: dict[int, int]) -> np.ndarray:
-    """New array with local labels replaced by stable IDs (0 = background)."""
-    out = np.zeros_like(labels, dtype=np.int32)
+    """New array with local labels replaced by stable IDs (0 = background).
+
+    Vectorized via a single lookup-table gather (``lut[labels]``) — O(pixels)
+    instead of O(labels × pixels) boolean assignments. Identical result: labels
+    absent from the map stay 0 (background), as before.
+    """
+    if not local_to_stable:
+        return np.zeros_like(labels, dtype=np.int32)
+    max_l = int(labels.max())
+    lut = np.zeros(max_l + 1, dtype=np.int32)
     for local, stable in local_to_stable.items():
-        out[labels == local] = stable
+        if 0 <= local <= max_l:
+            lut[local] = stable
+    return lut[labels].astype(np.int32, copy=False)
+
+
+# ──────────────────────────── merge genealogy ─────────────────────────────── #
+
+def _area_lookup(id_map: np.ndarray) -> dict[int, int]:
+    """``{stable_id: pixel_area}`` for a stable-ID label map (background excluded)."""
+    flat = id_map.ravel()
+    if flat.size == 0:
+        return {}
+    n = int(flat.max())
+    if n == 0:
+        return {}
+    counts = np.bincount(flat, minlength=n + 1)
+    return {int(i): int(counts[i]) for i in np.nonzero(counts)[0] if i > 0}
+
+
+def _genealogy_parents(
+    prev_id_map: np.ndarray,
+    curr_labels: np.ndarray,
+    area_prev: dict[int, int],
+    tau: float,
+) -> dict[int, dict[int, float]]:
+    """Forward region genealogy for one frame transition.
+
+    For each **current** local label, the set of **previous** stable IDs that are
+    its parents, i.e. IDs *p* such that ``|footprint(p) ∩ region| / area(p) ≥ tau``
+    — the fraction of the PARENT that flowed into the region (robust to incidental
+    boundary overlap, which contributes few of the neighbour's pixels). ``≥ 2``
+    parents ⇒ a merge. Drift is ignored in the overlap (small vs bubble size; same
+    approximation as :func:`foam_gnn.export_csv.classify_deaths`).
+
+    Parameters
+    ----------
+    prev_id_map : int32 (H, W)  — stable-ID map of frame t-1.
+    curr_labels : int (H, W)    — LOCAL label map of frame t (0 = background).
+    area_prev   : ``{stable_id: area}`` for ``prev_id_map``.
+
+    Returns
+    -------
+    dict[curr_local -> dict[parent_stable -> parent_fraction]]  (only fracs ≥ tau).
+    """
+    pf = prev_id_map.ravel()
+    cf = curr_labels.ravel()
+    valid = (pf > 0) & (cf > 0)
+    out: dict[int, dict[int, float]] = {}
+    if not valid.any():
+        return out
+    p = pf[valid].astype(np.int64)
+    c = cf[valid].astype(np.int64)
+    stride = int(cf.max()) + 1                     # encode (parent, region) → one key
+    uniq, cnt = np.unique(p * stride + c, return_counts=True)
+    for k, n in zip(uniq.tolist(), cnt.tolist()):
+        pi, ci = int(k // stride), int(k % stride)
+        ap = area_prev.get(pi, 0)
+        if ap > 0 and (n / ap) >= tau:
+            out.setdefault(ci, {})[pi] = n / ap
     return out
+
+
+def _choose_survivor(parents: set[int], rule: str, area_prev: dict[int, int]) -> int:
+    """Pick the stable ID a merged region inherits (see ``TrackConfig.merge_id_rule``).
+
+    ``"max"`` → highest ID (mentor's literal rule). ``"keep_larger"`` → largest-area
+    parent (physical continuity), tie-broken by highest ID for determinism.
+    """
+    if rule == "keep_larger":
+        return max(parents, key=lambda p: (area_prev.get(p, 0), p))
+    if rule != "max":
+        raise ValueError(f"unknown merge_id_rule {rule!r}; choose 'max' or 'keep_larger'")
+    return max(parents)
 
 
 def _detect_t1_between(
@@ -346,8 +487,14 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
     corr_rows: list[dict] = []
     events: list[TopologicalEvent] = []
 
+    # Extract per-bubble props ONCE per frame (was recomputed twice — as
+    # props_prev then props_curr). Coordinate grids are shared across frames of the
+    # session (constant shape); rebuilt inside _props_from_labels if a frame differs.
+    rr, cc = _coord_grids(results[0].labels.shape)
+    props_per_frame: list[list[dict]] = [_props_from_labels(r.labels, rr, cc) for r in results]
+
     # ── Frame 0: assign IDs 1..n_bubbles directly (local == stable) ───────── #
-    props0 = _bubble_props(results[0])
+    props0 = props_per_frame[0]
     local_to_stable: dict[int, int] = {p["label"]: p["label"] for p in props0}
     id_next: int = results[0].n_bubbles + 1
 
@@ -367,10 +514,24 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
             "area_px": p["area"], "cx": p["cx"], "cy": p["cy"],
         })
 
-    # ── Frames 1..n: match, assign IDs, log T2/birth ──────────────────────── #
+    # Merge/flicker state. A merge creates a *cluster* remembering all parents and
+    # their pre-merge footprints. While active (≤ ``W`` frames) a re-split of the
+    # merged region is reconciled back to those footprints (merge-flicker); a
+    # cluster that never re-splits is a real merge (→ a 'merge' event). No merge
+    # ever mints a new ID: the region inherits ``merge_id_rule`` among its parents.
+    clusters: list[dict] = []               # {merge_frame, last_frame, survivor, members:set, cx, cy}
+    confirmed_merges: list[dict] = []        # aged-out clusters → merge events
+    diag = {"n_merge_regions": 0, "n_resurrections": 0, "n_ambiguous_resurrections": 0,
+            "n_births_remaining": 0, "n_dup_demoted": 0, "n_split_reconciled": 0}
+    rule, tau, W = tcfg.merge_id_rule, tcfg.merge_overlap_frac, tcfg.merge_resurrect_window
+
+    # ── Frames 1..n: match, detect merges, reconcile splits, assign IDs ────── #
     for t in range(1, len(results)):
-        props_prev = _bubble_props(results[t - 1])
-        props_curr = _bubble_props(results[t])
+        props_prev = props_per_frame[t - 1]
+        props_curr = props_per_frame[t]
+        prev_id_map = id_maps[t - 1]
+        prev_stable_centroid = centroids_per_frame[t - 1]
+        curr_labels = results[t].labels
 
         drift_dy, drift_dx = 0.0, 0.0
         if tcfg.register_drift:
@@ -379,38 +540,139 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
         cum_off_y += drift_dy
         frame_offsets.append((cum_off_x, cum_off_y))
 
-        label_map, unmatched_prev, unmatched_curr = _match_frame_pair(
+        label_map, _unm_prev, _unm_curr = _match_frame_pair(
             props_prev, props_curr, drift_dy, drift_dx, tcfg
         )
+        curr_centroid = {p["label"]: (p["cx"], p["cy"]) for p in props_curr}
+        _foot_cache: dict[int, np.ndarray] = {}
+
+        def _foot(c: int) -> np.ndarray:
+            f = _foot_cache.get(c)
+            if f is None:
+                f = curr_labels == c
+                _foot_cache[c] = f
+            return f
 
         new_l2s: dict[int, int] = {}
+        used_stable: set[int] = set()
+
+        # ── A. fresh merges (genealogy: a region with ≥2 parents) ─────────── #
+        area_prev = _area_lookup(prev_id_map)
+        parents_of = _genealogy_parents(prev_id_map, curr_labels, area_prev, tau)
+        for c, pdict in parents_of.items():
+            ps = set(pdict)
+            if len(ps) < 2:
+                continue
+            surv = _choose_survivor(ps, rule, area_prev)
+            new_l2s[c] = surv
+            used_stable.add(surv)
+            diag["n_merge_regions"] += 1
+            mcx, mcy = curr_centroid[c]
+            clusters.append({"merge_frame": t, "last_frame": t - 1, "survivor": surv,
+                             "members": set(ps), "cx": mcx, "cy": mcy})
+
+        # ── B. reconcile a cluster only on a REAL re-split: the survivor's t-1
+        #    footprint fans out to ≥2 current regions (precise test via the genealogy
+        #    already computed). Then divide those fragments among the cluster members
+        #    by PRE-MERGE footprint (survivor first) — merge-flicker. Otherwise the
+        #    merged region persists as one; assign the survivor to it (so its
+        #    continuation never births) and keep the cluster active. ─────────────── #
+        surviving_clusters: list[dict] = []
+        for cl in clusters:
+            surv = cl["survivor"]
+            if cl["merge_frame"] == t or (t - cl["merge_frame"]) > W:
+                surviving_clusters.append(cl)                 # fresh, or aged-out (confirm in E)
+                continue
+            # survivor's t-1 footprint may fan out to several current regions; a
+            # region is a "child" if it covers ≥ 0.3 of the survivor (# DECISION:
+            # lower than the 0.5 merge threshold so uneven re-splits are caught).
+            s_foot = prev_id_map == surv
+            area_s = int(s_foot.sum())
+            children = []
+            if area_s:
+                sub = curr_labels[s_foot]
+                vals, cnts = np.unique(sub[sub > 0], return_counts=True)
+                children = [int(v) for v, ct in zip(vals.tolist(), cnts.tolist())
+                            if ct / area_s >= 0.3 and int(v) not in new_l2s]
+            if len(children) < 2:                             # not split → survivor continues
+                if children and children[0] not in new_l2s:
+                    new_l2s[children[0]] = surv
+                    used_stable.add(surv)
+                surviving_clusters.append(cl)
+                continue
+            members = sorted(cl["members"], key=lambda m: (m != surv, m))   # survivor first
+            matched: dict[int, int] = {}
+            for m in members:
+                foot_m = id_maps[cl["last_frame"]] == m
+                am = int(foot_m.sum())
+                if am == 0:
+                    continue
+                best_c, best_fr, second_fr = None, 0.0, 0.0
+                for c in children:
+                    if c in new_l2s:
+                        continue
+                    fr = float((_foot(c) & foot_m).sum()) / am
+                    if fr > best_fr:
+                        best_c, best_fr, second_fr = c, fr, best_fr
+                    elif fr > second_fr:
+                        second_fr = fr
+                if best_c is not None and best_fr >= tau:
+                    if second_fr >= (1.0 - tcfg.merge_ambiguous_frac) * best_fr:
+                        diag["n_ambiguous_resurrections"] += 1
+                    matched[m] = best_c
+                    new_l2s[best_c] = m
+                    used_stable.add(m)
+            if len(matched) >= 2:                             # merged region re-split → flicker
+                diag["n_split_reconciled"] += 1
+                diag["n_resurrections"] += sum(1 for m in matched if m != surv)
+                diag.setdefault("flicker_durations", []).append(t - cl["merge_frame"])
+            else:
+                surviving_clusters.append(cl)                 # not a clean split; keep active
+        clusters = surviving_clusters
+
+        # ── C. Hungarian matches for still-unassigned regions ─────────────── #
         for local_prev, local_curr in label_map.items():
+            if local_curr in new_l2s:
+                continue
             stable = local_to_stable.get(local_prev)
-            if stable is not None:
-                new_l2s[local_curr] = stable
+            if stable is None:
+                continue
+            if stable in used_stable:
+                diag["n_dup_demoted"] += 1
+                continue
+            new_l2s[local_curr] = stable
+            used_stable.add(stable)
 
-        curr_centroid = {p["label"]: (p["cx"], p["cy"]) for p in props_curr}
-
-        # Births: unmatched in current frame get new IDs
-        for local_curr in unmatched_curr:
-            new_l2s[local_curr] = id_next
-            cx, cy = curr_centroid[local_curr]
+        # ── D. genuinely unassigned regions → birth (segmentation split; the ONLY
+        #    path that mints a new ID — NOT fixed by the merge/flicker guard) ── #
+        for p in props_curr:
+            c = p["label"]
+            if c in new_l2s:
+                continue
+            cx, cy = curr_centroid[c]
+            new_l2s[c] = id_next
             events.append(TopologicalEvent(
                 frame=t, kind="birth", bubble_ids=(id_next,),
-                meta={"local_label": local_curr, "cx": cx, "cy": cy},
+                meta={"local_label": c, "cx": cx, "cy": cy, "cause": "segmentation_split"},
             ))
             id_next += 1
+            diag["n_births_remaining"] += 1
 
-        # Disappearances: unmatched in previous frame (locate at last-seen centroid)
-        prev_centroid = {p["label"]: (p["cx"], p["cy"]) for p in props_prev}
-        for local_prev in unmatched_prev:
-            stable = local_to_stable.get(local_prev, 0)
-            if stable:
-                cx, cy = prev_centroid.get(local_prev, (float("nan"), float("nan")))
-                events.append(TopologicalEvent(
-                    frame=t, kind="T2_disappear", bubble_ids=(stable,),
-                    meta={"last_seen_frame": t - 1, "cx": cx, "cy": cy},
-                ))
+        # ── E. confirm merges whose cluster aged out without re-splitting ──── #
+        kept: list[dict] = []
+        for cl in clusters:
+            (confirmed_merges if (t - cl["merge_frame"]) >= W else kept).append(cl)
+        clusters = kept
+
+        # ── F. previous IDs neither continued nor held in a cluster → T2 ───── #
+        continued = set(new_l2s.values())
+        held = set().union(*(cl["members"] for cl in clusters)) if clusters else set()
+        for pid in set(local_to_stable.values()) - continued - held:
+            cx, cy = prev_stable_centroid.get(pid, (float("nan"), float("nan")))
+            events.append(TopologicalEvent(
+                frame=t, kind="T2_disappear", bubble_ids=(pid,),
+                meta={"last_seen_frame": t - 1, "cx": cx, "cy": cy},
+            ))
 
         local_to_stable = new_l2s
         id_maps.append(_remap(results[t].labels, local_to_stable))
@@ -424,6 +686,10 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
                 "frame": t, "bubble_id": sid, "label_in_frame": p["label"],
                 "area_px": p["area"], "cx": p["cx"], "cy": p["cy"],
             })
+
+    # any cluster still active at session end never re-split → confirmed merge
+    confirmed_merges.extend(clusters)
+    clusters = []
 
     # ── T1 detection (second pass: needs adjacency + look-ahead confirm) ──── #
     adj_per_frame = [_adjacency_lengths(m) for m in id_maps]
@@ -458,6 +724,27 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
                       "confirmed_frames": confirmed},
             ))
 
+    # ── confirmed merges → one 'merge' event per cluster (never re-split) ─── #
+    n_merge_events = 0
+    for cl in confirmed_merges:
+        surv = cl["survivor"]
+        merged = tuple(sorted(cl["members"] - {surv}))
+        if not merged:
+            continue                                    # degenerate (self only); skip
+        n_merge_events += 1
+        events.append(TopologicalEvent(
+            frame=cl["merge_frame"], kind="merge",
+            bubble_ids=tuple(sorted(cl["members"])),
+            meta={"survivor": surv, "merged_ids": merged, "n_parents": len(cl["members"]),
+                  "last_seen_frame": cl["merge_frame"] - 1, "cx": cl["cx"], "cy": cl["cy"]},
+        ))
+
+    # invariant-B diagnostic: no stable ID may exceed the frame-0 maximum
+    frame0_max_id = int(id_maps[0].max()) if id_maps[0].size else 0
+    max_id = max((int(m.max()) for m in id_maps if m.size), default=0)
+    diag.update(n_merge_events=n_merge_events, frame0_max_id=frame0_max_id,
+                max_bubble_id=max_id, invariant_B_holds=(max_id <= frame0_max_id))
+
     events.sort(key=lambda e: (e.frame, e.kind))
     return TrackingResult(
         id_maps=id_maps,
@@ -465,6 +752,7 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
         correspondence=pd.DataFrame(corr_rows),
         n_tracks=id_next - 1,
         frame_offsets=frame_offsets,
+        diagnostics=diag,
     )
 
 
@@ -542,13 +830,14 @@ def overlay_events(
     events: list[TopologicalEvent],
     frame: int,
     *,
-    kinds: tuple[str, ...] = ("T1_swap", "T2_disappear", "birth"),
+    kinds: tuple[str, ...] = ("T1_swap", "T2_disappear", "birth", "merge"),
     radius: int = 16,
 ) -> np.ndarray:
     """Overlay events observed at *frame* onto its raw image for visual audit.
 
     T1 → yellow circle + "T1" at the 4-bubble cluster centroid; T2 → red ✕ at the
-    last-seen centroid; birth → green + at the new centroid.
+    last-seen centroid; birth → green + at the new centroid; merge → magenta
+    double-circle + "M" at the merged-region centroid.
 
     Parameters
     ----------
@@ -572,6 +861,7 @@ def overlay_events(
         "T1_swap": ((255, 230, 0), "T1"),
         "T2_disappear": ((255, 40, 40), "T2"),
         "birth": ((40, 220, 40), "b"),
+        "merge": ((230, 40, 230), "M"),
     }
     for e in events:
         if e.frame != frame or e.kind not in kinds:
@@ -581,7 +871,10 @@ def overlay_events(
             continue
         c = (int(round(cx)), int(round(cy)))
         color, tag = style.get(e.kind, ((255, 255, 255), "?"))
-        if e.kind == "T1_swap":
+        if e.kind == "merge":
+            cv2.circle(rgb, c, radius, color, 2)
+            cv2.circle(rgb, c, max(radius - 5, 3), color, 2)
+        elif e.kind == "T1_swap":
             cv2.circle(rgb, c, radius, color, 2)
         elif e.kind == "T2_disappear":
             d = radius // 2
