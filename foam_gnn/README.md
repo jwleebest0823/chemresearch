@@ -155,6 +155,20 @@ come from **segmentation reorganization** births (a region overlapping many
 predecessors at <50% each; 15/20 frame-1 births have no ≥50% parent), which is a
 segmentation-stability problem this fix does not address. See the session notes.
 
+**Implemented (stable-bubble analysis + radial hypothesis test).**
+`foam_gnn.stability` selects the **trusted-identity** subset (frame-0-origin IDs
+that persist ≥N frames with continuous area and no merge — *not* a size cut) and
+runs **pre-condition gates** (survival-vs-distance confound, distance-jitter
+reliability, near-edge occupancy/power). `foam_gnn.radial` tests dA/dt vs
+distance-to-edge with **cluster-bootstrap CIs**, a von Neumann K-per-bin fit, an
+explicit power/MDE statement, and a **pre-registered** decision rule.
+**Result on Foam A (`docs/stability_radial_analysis.md`):** the trusted subset is
+only ~5% of tracks / ~15% of foam area with just 3 bubbles in the near-edge bin, so
+the radial test is **underpowered** — reported (per plan) as *"too few
+stably-tracked bubbles, especially near the edge, to test the hypothesis"*, NOT as
+evidence about the physics. Points to the small/edge/coalescing population that
+needs a segmentation-quality investment.
+
 **Implemented (Module 3 — graph construction + CSV export).** Per-frame NetworkX
 graphs (nodes = bubbles, edges = shared films) with node features (area, n_sides,
 registered centroid, circularity, perimeter, distance-to-evap-edge) and the three
@@ -165,12 +179,13 @@ torch needed for the base path). Long-format `nodes.csv` / `edges.csv` export
 disappear/coalesce classifier, a `event_confidence` flag, and a `README_csv.md`
 that carries the **preliminary-event** caveat with the data.
 
-**Tested** (78 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
+**Tested** (89 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
 dataset logic (LOFO, timestamp parsing, run-splitting, exp2-removal tolerance);
-tracking contract + deterministic T1 **and merge** unit tests (merge inherits
-max/keep-larger, no birth, no new ID, flicker re-split reclaims both IDs); **graph
-feature math on synthetic maps**; **export long-format invariants** + a real-frames
-Foam-A smoke. Real-data tests skip when `data/` is absent (it is gitignored).
+tracking contract + deterministic T1 **and merge** unit tests; **graph feature
+math**; **export long-format invariants** + real-frames smoke; **stability filter**
+(frame-0-origin, persistence, area/merge splitting, small-bubble-kept, confound
+gate) and **radial test** (implanted-gradient recovery, flat-data null, von Neumann
+K recovery, cluster bootstrap). Real-data tests skip when `data/` is absent.
 
 **Validated on real data this session** (see
 [`docs/module2_session_notes.md`](docs/module2_session_notes.md)): Foam C is one

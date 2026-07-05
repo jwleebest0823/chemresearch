@@ -256,6 +256,47 @@ class EvalConfig:
 
 
 # --------------------------------------------------------------------------- #
+# Stable-bubble analysis (trusted-identity subset + radial hypothesis test)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class StabilityConfig:
+    """Select bubbles whose IDENTITY we can trust — NOT the big bubbles.
+
+    A trusted track segment is a maximal run of consecutive frames for one stable
+    ``bubble_id`` that (a) has a real origin, (b) persists, (c) has a continuous
+    area trajectory, and (d) contains no merge. We never threshold on instantaneous
+    size, so small trusted bubbles are kept; but persistence introduces
+    survivorship selection — reported, not hidden (see ``foam_gnn.stability``).
+    """
+
+    # DECISION (D1, confirmed): only bubbles present in the initial segmentation
+    # (bubble_id <= frame0_max_id) are eligible. Every later ID is a
+    # reorganization-birth artifact ("bubbles never appear").
+    origin_rule: str = "frame0"                    # {"frame0"}
+    # DECISION (D3): a trusted segment needs at least this many consecutive frames
+    # (an N-frame sweep is run around this default).
+    min_persist_frames: int = 5
+    # DECISION (D3): |Δ log area| above this between consecutive frames signals a
+    # segmentation relabel / boundary theft → the track is split there.
+    area_jump_tol: float = 0.5
+    # ── gates (analysis is HALTED / flagged, not silently continued) ──────────
+    # DECISION (D1 gate): below this many trusted bubbles the radial test is
+    # declared underpowered and the finding is "too few stably-tracked bubbles".
+    min_trusted_bubbles: int = 20
+    # DECISION: a radial bin with fewer trusted bubbles than this is excluded from
+    # per-bin K fits (kept for occupancy reporting).
+    min_bubbles_per_bin: int = 5
+    # DECISION (Condition 1): if |Spearman(survived-filter, distance-to-edge)|
+    # exceeds this, near-edge bubbles are systematically under-retained → the
+    # radial test is CONFOUNDED (a null is not "no gradient"). Reported as a gate.
+    survival_confound_rho: float = 0.3
+    # DECISION (Condition 2): if a stationary trusted bubble's frame-to-frame
+    # distance-to-edge jitter (std) exceeds this fraction of its mean distance, the
+    # x-axis is deemed noisy and reported as such.
+    distance_jitter_frac: float = 0.15
+
+
+# --------------------------------------------------------------------------- #
 # Top-level
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
@@ -272,3 +313,4 @@ class PipelineConfig:
     loss: LossConfig = field(default_factory=LossConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
+    stability: StabilityConfig = field(default_factory=StabilityConfig)
