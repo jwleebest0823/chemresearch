@@ -56,12 +56,13 @@ def test_classify_deaths_coalesce():
     cfg = PipelineConfig()
     tr = track_sequence(results, cfg)
     deaths = classify_deaths(results, tr, cfg)
-    # merge_id_rule="max": the merged region inherits max(1, 2) = 2, so bubble 1
-    # (last seen frame 1) is the one that coalesces INTO survivor 2 — no new ID.
-    assert (1, 1) in deaths, deaths
-    assert deaths[(1, 1)]["event"] == "coalesce"
-    assert deaths[(1, 1)]["absorber_id"] == 2
-    assert deaths[(1, 1)]["event_confidence"] in {"low", "medium"}
+    # merge_id_rule="keep_larger" (Option 3): the merged region keeps the LARGER
+    # bubble 1 (384 px) — so small bubble 2 (last seen frame 1) coalesces INTO
+    # survivor 1. This is the physically-correct relabel (big bubble keeps its ID).
+    assert (1, 2) in deaths, deaths
+    assert deaths[(1, 2)]["event"] == "coalesce"
+    assert deaths[(1, 2)]["absorber_id"] == 1
+    assert deaths[(1, 2)]["event_confidence"] in {"low", "medium"}
 
 
 def test_classify_deaths_pure_disappear():
@@ -89,15 +90,15 @@ def test_export_session_longformat_and_schema():
 
     assert list(nodes.columns) == NODE_COLUMNS
     assert list(edges.columns) == EDGE_COLUMNS
-    # long format under max rule: bubble 1 merges into survivor 2, so bubble 1 is
-    # present at frames 0,1 but NOT frame 2; survivor 2 persists.
+    # long format under keep_larger: small bubble 2 merges into larger survivor 1,
+    # so bubble 2 is present at frames 0,1 but NOT frame 2; survivor 1 persists.
     f2 = set(nodes[nodes["frame"] == 2]["bubble_id"])
-    assert 1 not in f2
-    assert {2, 3}.issubset(f2)
-    # event marked only on bubble 1's final frame (frame 1); survivor 2 has none
-    row = nodes[(nodes["frame"] == 1) & (nodes["bubble_id"] == 1)]
+    assert 2 not in f2
+    assert {1, 3}.issubset(f2)
+    # event marked only on bubble 2's final frame (frame 1); survivor 1 has none
+    row = nodes[(nodes["frame"] == 1) & (nodes["bubble_id"] == 2)]
     assert row["event"].iloc[0] == "coalesce"
-    assert (nodes[nodes["bubble_id"] == 2]["event"] == "").all()
+    assert (nodes[nodes["bubble_id"] == 1]["event"] == "").all()
     # edges are undirected & ordered i<j, positive contact length
     assert (edges["bubble_id_i"] < edges["bubble_id_j"]).all()
     assert (edges["contact_line_length"] > 0).all()

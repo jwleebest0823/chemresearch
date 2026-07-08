@@ -384,17 +384,23 @@ def _genealogy_parents(
     return out
 
 
-def _choose_survivor(parents: set[int], rule: str, area_prev: dict[int, int]) -> int:
+def _choose_survivor(parents: set[int], rule: str, area_prev: dict[int, int],
+                     exclude: set[int] | None = None) -> int | None:
     """Pick the stable ID a merged region inherits (see ``TrackConfig.merge_id_rule``).
 
-    ``"max"`` → highest ID (mentor's literal rule). ``"keep_larger"`` → largest-area
-    parent (physical continuity), tie-broken by highest ID for determinism.
+    ``"keep_larger"`` → largest-area parent (physical continuity, DEFAULT), tie-broken
+    by highest ID for determinism. ``"max"`` → highest ID. ``exclude`` removes parents
+    already claimed by another region this frame (per-frame ID uniqueness); returns
+    ``None`` if every parent is excluded.
     """
+    cand = [p for p in parents if not exclude or p not in exclude]
+    if not cand:
+        return None
     if rule == "keep_larger":
-        return max(parents, key=lambda p: (area_prev.get(p, 0), p))
+        return max(cand, key=lambda p: (area_prev.get(p, 0), p))
     if rule != "max":
-        raise ValueError(f"unknown merge_id_rule {rule!r}; choose 'max' or 'keep_larger'")
-    return max(parents)
+        raise ValueError(f"unknown merge_id_rule {rule!r}; choose 'keep_larger' or 'max'")
+    return max(cand)
 
 
 def _detect_t1_between(
@@ -563,7 +569,13 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
             ps = set(pdict)
             if len(ps) < 2:
                 continue
-            surv = _choose_survivor(ps, rule, area_prev)
+            # A survivor ID may be claimed by at most ONE region this frame. If a
+            # parent (e.g. one that splits ~50/50 into two merge regions) is already
+            # taken, fall back to the next-best AVAILABLE parent by the same rule.
+            # This preserves per-frame ID uniqueness for any merge_id_rule.
+            surv = _choose_survivor(ps, rule, area_prev, exclude=used_stable)
+            if surv is None:
+                continue                                     # all parents claimed → not a merge here
             new_l2s[c] = surv
             used_stable.add(surv)
             diag["n_merge_regions"] += 1
@@ -657,6 +669,28 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
             ))
             id_next += 1
             diag["n_births_remaining"] += 1
+
+        # ── D.5 Guarantee per-frame ID uniqueness. A degenerate ~50/50 split can
+        #    let two regions claim one stable ID across the merge / reconcile /
+        #    match paths; keep it for the LARGER region and re-birth the rest
+        #    (flagged). Rare; without it a frame's id_map would have fewer unique
+        #    IDs than regions. ──────────────────────────────────────────────── #
+        areas_by_local = {p["label"]: p["area"] for p in props_curr}
+        keeper: dict[int, int] = {}
+        for c in sorted(new_l2s, key=lambda k: -areas_by_local.get(k, 0)):
+            s = new_l2s[c]
+            if s in keeper:
+                cx, cy = curr_centroid[c]
+                new_l2s[c] = id_next
+                events.append(TopologicalEvent(
+                    frame=t, kind="birth", bubble_ids=(id_next,),
+                    meta={"local_label": c, "cx": cx, "cy": cy,
+                          "cause": "dedup_ambiguous_split"}))
+                id_next += 1
+                diag["n_births_remaining"] += 1
+                diag["n_dup_demoted"] += 1
+            else:
+                keeper[s] = c
 
         # ── E. confirm merges whose cluster aged out without re-splitting ──── #
         kept: list[dict] = []

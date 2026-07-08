@@ -153,14 +153,15 @@ class TrackConfig:
     t1_confirm_frames: int = 1
     # ── Merge handling (mentor's rule: bubbles never appear; a merge inherits an
     #    existing ID, never a new one) ─────────────────────────────────────────
-    # DECISION (D3, mentor's call): which parent's ID a merged region inherits.
-    #   "max"        -> highest bubble_id among parents (mentor's literal rule;
-    #                   unambiguous for equal-size merges, but can relabel a large
-    #                   continuous bubble to a small absorbed bubble's higher ID).
-    #   "keep_larger"-> the largest-area parent's ID (preserves physical continuity
-    #                   of the big bubble). Both paths are implemented; default
-    #                   "max" per the mentor's stated rule until he confirms.
-    merge_id_rule: str = "max"                     # {"max", "keep_larger"}
+    # DECISION (D3, CONFIRMED by Dr. Oh — "Option 3"): a merged region inherits the
+    # ID of the parent with the LARGER AREA (physical continuity of the big bubble),
+    # NOT the larger ID number.
+    #   "keep_larger"-> largest-area parent's ID (default; tie-broken by highest ID).
+    #   "max"        -> highest bubble_id among parents (old rule; kept for ablation;
+    #                   can relabel a large continuous bubble to a small absorbed
+    #                   bubble's higher ID).
+    # Both mint no new ID (the merge invariant is preserved either way).
+    merge_id_rule: str = "keep_larger"             # {"keep_larger", "max"}
     # DECISION: a frame-t bubble is a "parent" of a frame-(t+1) region when at
     # least this fraction of the PARENT's footprint flows into that region. On the
     # parent's fraction (not the region's) so incidental boundary overlap from a

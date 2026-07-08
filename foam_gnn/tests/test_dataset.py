@@ -33,9 +33,10 @@ requires_data = pytest.mark.skipif(not _HAS_DATA, reason="raw data/ not present 
 
 
 # --------------------------- registry / grouping --------------------------- #
-def test_three_foams():
-    assert FOAMS == ("A", "B", "C")
+def test_foams():
+    assert FOAMS == ("A", "B", "C", "D")
     assert experiments_of_foam("C") == ("exp3", "exp4", "exp5", "exp6", "exp7")
+    assert experiments_of_foam("D") == ("exp8",)             # new independent foam
 
 
 def test_registry_consistency():
@@ -57,9 +58,9 @@ def test_foam_of_and_unknown_raises():
 
 
 # --------------------------- LOFO invariants --------------------------- #
-def test_lofo_three_disjoint_folds():
+def test_lofo_disjoint_folds():
     folds = leave_one_foam_out()
-    assert len(folds) == 3
+    assert len(folds) == len(FOAMS)                          # one fold per foam (now 4)
     for f in folds:
         assert not (set(f["train_exps"]) & set(f["test_exps"]))
         # every experiment is accounted for exactly once
@@ -114,7 +115,7 @@ def test_contiguous_runs_empty():
 def test_temporal_table_shape_and_structure():
     df = temporal_table(DATA_ROOT)
     assert len(df) == len(EXPERIMENTS)
-    assert set(df["foam"]) == {"A", "B", "C"}
+    assert set(df["foam"]) == {"A", "B", "C", "D"}
     # Foam C is 5 sessions, all on the same calendar day
     c = df[df["foam"] == "C"]
     assert len(c) == 5

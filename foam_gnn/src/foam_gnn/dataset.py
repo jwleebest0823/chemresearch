@@ -120,8 +120,9 @@ FOAM_SESSIONS: dict[str, tuple[str, ...]] = {
     "A": ("exp1",),
     "B": ("exp2",),
     "C": ("exp3", "exp4", "exp5", "exp6", "exp7"),
+    "D": ("exp8",),
 }
-FOAMS: tuple[str, ...] = tuple(FOAM_SESSIONS)  # ("A", "B", "C")
+FOAMS: tuple[str, ...] = tuple(FOAM_SESSIONS)  # ("A", "B", "C", "D")
 
 EXPERIMENTS: dict[str, ExperimentMeta] = {
     "exp1": ExperimentMeta(
@@ -138,6 +139,12 @@ EXPERIMENTS: dict[str, ExperimentMeta] = {
     "exp5": ExperimentMeta("exp5", "C", (1024, 1280), ".jpg", notes="Foam C session 3/5."),
     "exp6": ExperimentMeta("exp6", "C", (1024, 1280), ".jpg", notes="Foam C session 4/5."),
     "exp7": ExperimentMeta("exp7", "C", (1024, 1280), ".jpg", notes="Foam C session 5/5."),
+    "exp8": ExperimentMeta(
+        "exp8", "D", (1024, 1280), ".jpg",
+        notes="Foam D; independent foam; same imaging settings as Foam C but visibly "
+              "clearer rendering / more distinct bubble boundaries; one session, 99 "
+              "frames @30 s (2026-07-06); own CV fold.",
+    ),
 }
 
 # Cross-check the two declarations agree (fail loud at import time).

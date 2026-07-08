@@ -31,18 +31,19 @@ The pipeline is built to compute and test against the relevant physics:
 
 ---
 
-## Dataset structure — 3 independent foams, not 7 experiments
+## Dataset structure — 4 independent foams, not 8 experiments
 
-The on-disk folders `exp1`…`exp7` are **3 physically independent foams** imaged
-across **7 acquisition sessions**. This is authoritative in
-[`foam_gnn.dataset`](src/foam_gnn/dataset.py) (`FOAM_SESSIONS`, `EXPERIMENTS`),
-the single source of truth for both CV folds and tracking segments.
+The on-disk folders `exp1`…`exp8` are **4 physically independent foams**. This is
+authoritative in [`foam_gnn.dataset`](src/foam_gnn/dataset.py) (`FOAM_SESSIONS`,
+`EXPERIMENTS`), the single source of truth for both CV folds and tracking segments.
+Each foam is its own leave-one-foam-out fold.
 
 | Foam | Folders | Frames | Image | Mag | Notes |
 |---|---|---|---|---|---|
 | **A** | `exp1` | 198 | 1024×1280 JPG | M1 | B/W; two 99-frame runs split by a 2.5-min gap |
 | **B** | `exp2` | 103 | **1536×2048 TIF** | ≠M1 | different USB camera; non-physical colour → grayscale |
 | **C** | `exp3`–`exp7` | 5×99 | 1024×1280 JPG | ≈M1 | **ONE raft**, 5 sessions over ~10.7 h on 2026-06-16 |
+| **D** | `exp8` | 99 | 1024×1280 JPG | low | clearer render but foam fills only ~6% of frame → few pixels/bubble → *more* churn; see `docs/exp8_diagnostic.md` |
 
 **Two invariants enforced by `foam_gnn.dataset`:**
 - **CV unit = foam.** Leave-one-foam-out = 3 folds (A, B, C) via
@@ -141,8 +142,14 @@ structure (CV-by-foam, track-by-session) with per-experiment shapes.
 
 **Implemented (Module 2 — merge rule: bubbles never appear).** A merge (a frame-t+1
 region with ≥2 genealogy parents) now **inherits an existing bubble ID**
-(`merge_id_rule`: `"max"` per the mentor, or `"keep_larger"`) instead of minting a
-new one — the old birth-on-merge behaviour is gone. A merge-flicker (a film that
+(`merge_id_rule`, **default `"keep_larger"`** = the larger-AREA parent's ID, Dr.
+Oh's confirmed "Option 3"; `"max"` retained for ablation) instead of minting a new
+one — the old birth-on-merge behaviour is gone. A survivor ID is claimed by at most
+one region per frame (a `~50/50` split falls back to the next parent, then a
+final dedup guard), so per-frame IDs are always unique. `keep_larger` preserves the
+big bubble's identity through merges, which measurably improved Foam-A trackability
+(trusted bubbles 73→80, near-edge 3→11, trackable area 15%→29%; see
+`docs/exp8_diagnostic.md`). A merge-flicker (a film that
 briefly fails to segment, faking a merge that re-splits) is reconciled within a
 data-tuned window (`merge_resurrect_window=2`, from the Foam-A flicker
 distribution) so the re-split reclaims the existing IDs, not new ones.
@@ -179,13 +186,14 @@ torch needed for the base path). Long-format `nodes.csv` / `edges.csv` export
 disappear/coalesce classifier, a `event_confidence` flag, and a `README_csv.md`
 that carries the **preliminary-event** caveat with the data.
 
-**Tested** (89 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
-dataset logic (LOFO, timestamp parsing, run-splitting, exp2-removal tolerance);
-tracking contract + deterministic T1 **and merge** unit tests; **graph feature
-math**; **export long-format invariants** + real-frames smoke; **stability filter**
-(frame-0-origin, persistence, area/merge splitting, small-bubble-kept, confound
-gate) and **radial test** (implanted-gradient recovery, flat-data null, von Neumann
-K recovery, cluster bootstrap). Real-data tests skip when `data/` is absent.
+**Tested** (90 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
+dataset logic (LOFO for 4 foams, timestamp parsing, run-splitting, exp2-removal
+tolerance); tracking contract + deterministic T1 **and merge** unit tests
+(keep_larger survivor, no-birth, per-frame ID uniqueness on a 50/50 split, max-rule
+ablation); **graph feature math**; **export long-format invariants** + real-frames
+smoke; **stability filter** and **radial test** (implanted-gradient recovery,
+flat-data null, von Neumann K recovery, cluster bootstrap). Real-data tests skip
+when `data/` is absent.
 
 **Validated on real data this session** (see
 [`docs/module2_session_notes.md`](docs/module2_session_notes.md)): Foam C is one

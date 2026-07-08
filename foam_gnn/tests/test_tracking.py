@@ -67,8 +67,7 @@ def test_n_tracks_positive(tracking, results):
 
 def test_id_count_per_frame_matches_n_bubbles(tracking, results):
     for id_map, res in zip(tracking.id_maps, results):
-        n_ids = int((id_map > 0).max())   # at least one positive id exists
-        # the number of unique positive IDs ≥ 1 (frame has bubbles)
+        # each segmentation region must carry exactly one unique positive stable ID
         n_unique = len(np.unique(id_map[id_map > 0]))
         assert n_unique == res.n_bubbles, (
             f"id_map has {n_unique} unique positive IDs but seg has {res.n_bubbles} bubbles"
@@ -332,24 +331,47 @@ def _merge_seq(persist: int = 2, w1: int = 15) -> list:
     return [_seg_from(two)] + [_seg_from(one)] * persist
 
 
-def test_merge_inherits_max_no_birth():
-    tr = track_sequence(_merge_seq(), PipelineConfig())              # rule="max"
+def test_merge_default_keeps_larger_area_id():
+    """Dr. Oh's Option 3 (default): the survivor keeps the LARGER-AREA parent's ID,
+    even though that ID is the *smaller* number — a discriminating case."""
+    # w1=24 → bubble 1 is the LARGER area (24-wide) but has the SMALLER id;
+    # bubble 2 is the smaller area (8-wide). keep_larger ⇒ survivor = 1 (not max = 2).
+    tr = track_sequence(_merge_seq(w1=24), PipelineConfig())
     ids = [sorted(set(np.unique(m).tolist()) - {0}) for m in tr.id_maps]
-    assert ids == [[1, 2], [2], [2]]                                # survivor = max(1, 2) = 2
+    assert ids == [[1, 2], [1], [1]]                                # larger-area bubble 1 survives
     assert all(e.kind != "birth" for e in tr.events)                # a merge never births
     assert tr.diagnostics["max_bubble_id"] == 2                     # no new ID minted
-    assert tr.diagnostics["frame0_max_id"] == 2
     assert tr.diagnostics["invariant_B_holds"]
     merges = [e for e in tr.events if e.kind == "merge"]
     assert len(merges) == 1
-    assert merges[0].meta["survivor"] == 2 and merges[0].meta["merged_ids"] == (1,)
+    assert merges[0].meta["survivor"] == 1 and merges[0].meta["merged_ids"] == (2,)
 
 
-def test_merge_keep_larger_rule():
-    cfg = PipelineConfig(track=_dc.replace(PipelineConfig().track, merge_id_rule="keep_larger"))
-    tr = track_sequence(_merge_seq(w1=24), cfg)                     # bubble 1 has the larger area
-    assert sorted(set(np.unique(tr.id_maps[-1]).tolist()) - {0}) == [1]   # larger parent survives
+def test_merge_max_rule_ablation_still_available():
+    """The old 'max' rule remains selectable and gives a DIFFERENT survivor (the
+    larger ID number) on the same unequal-size merge."""
+    cfg = PipelineConfig(track=_dc.replace(PipelineConfig().track, merge_id_rule="max"))
+    tr = track_sequence(_merge_seq(w1=24), cfg)                     # bubble 1 larger area, bubble 2 larger id
+    assert sorted(set(np.unique(tr.id_maps[-1]).tolist()) - {0}) == [2]   # max id survives
     assert all(e.kind != "birth" for e in tr.events)
+
+
+def test_merge_survivor_unique_per_frame():
+    """A parent that splits ~50/50 into two merge regions cannot be the survivor of
+    BOTH — the second falls back to its next-best parent, keeping IDs unique per
+    frame (regression for the keep_larger duplicate-ID bug)."""
+    f0 = np.zeros((24, 40), np.int32)
+    f0[6:18, 2:8] = 2                     # small left (area 72)
+    f0[6:18, 8:32] = 1                    # large centre (area 288) — will split 50/50
+    f0[6:18, 32:38] = 3                   # small right (area 72)
+    f1 = np.zeros((24, 40), np.int32)
+    f1[6:18, 2:20] = 1                    # left half of 1 (frac .5) + bubble 2  → survivor 1
+    f1[6:18, 20:38] = 2                   # right half of 1 (frac .5) + bubble 3 → survivor 1 taken → 3
+    tr = track_sequence([_seg_from(f0), _seg_from(f1)], PipelineConfig())
+    ids1 = sorted(set(np.unique(tr.id_maps[1]).tolist()) - {0})
+    assert ids1 == [1, 3]                 # unique; larger bubble 1 keeps its ID once, 3 falls back
+    assert len(ids1) == 2                 # one ID per region (frame 1 has 2 regions)
+    assert tr.diagnostics["max_bubble_id"] == 3 and tr.diagnostics["invariant_B_holds"]
 
 
 def test_merge_flicker_resurrection_no_new_id():
