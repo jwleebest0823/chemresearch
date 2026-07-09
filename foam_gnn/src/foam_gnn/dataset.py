@@ -121,8 +121,9 @@ FOAM_SESSIONS: dict[str, tuple[str, ...]] = {
     "B": ("exp2",),
     "C": ("exp3", "exp4", "exp5", "exp6", "exp7"),
     "D": ("exp8",),
+    "E": ("exp9",),
 }
-FOAMS: tuple[str, ...] = tuple(FOAM_SESSIONS)  # ("A", "B", "C", "D")
+FOAMS: tuple[str, ...] = tuple(FOAM_SESSIONS)  # ("A", "B", "C", "D", "E")
 
 EXPERIMENTS: dict[str, ExperimentMeta] = {
     "exp1": ExperimentMeta(
@@ -143,7 +144,18 @@ EXPERIMENTS: dict[str, ExperimentMeta] = {
         "exp8", "D", (1024, 1280), ".jpg",
         notes="Foam D; independent foam; same imaging settings as Foam C but visibly "
               "clearer rendering / more distinct bubble boundaries; one session, 99 "
-              "frames @30 s (2026-07-06); own CV fold.",
+              "frames @30 s (2026-07-06); own CV fold. DIAGNOSIS: foam fills only ~6% of "
+              "frame (low mag) -> few px/bubble -> WORSE churn than Foam A.",
+    ),
+    "exp9": ExperimentMeta(
+        "exp9", "E", (1024, 1280), ".jpg",
+        notes="Foam E; independent foam; HIGHER magnification (foam fills ~50% of frame "
+              "at f000 vs Foam A ~22%, exp8 ~6%) -> large well-resolved bubbles but a "
+              "COARSE foam (~34 bubbles at f000, h_maxima=8). One session, 99 frames "
+              "@30 s (2026-07-07); own CV fold. # DECISION: needs h_maxima~8 (not the "
+              "Foam-A 4.0, which over-segments the large bubbles with false interior "
+              "splits: n@f000 141->34). Global default stays 4.0; exp9 segmented via "
+              "the H_MAXIMA override in dev/segment_run.py.",
     ),
 }
 

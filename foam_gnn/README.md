@@ -31,9 +31,9 @@ The pipeline is built to compute and test against the relevant physics:
 
 ---
 
-## Dataset structure — 4 independent foams, not 8 experiments
+## Dataset structure — 5 independent foams, not 9 experiments
 
-The on-disk folders `exp1`…`exp8` are **4 physically independent foams**. This is
+The on-disk folders `exp1`…`exp9` are **5 physically independent foams**. This is
 authoritative in [`foam_gnn.dataset`](src/foam_gnn/dataset.py) (`FOAM_SESSIONS`,
 `EXPERIMENTS`), the single source of truth for both CV folds and tracking segments.
 Each foam is its own leave-one-foam-out fold.
@@ -43,7 +43,8 @@ Each foam is its own leave-one-foam-out fold.
 | **A** | `exp1` | 198 | 1024×1280 JPG | M1 | B/W; two 99-frame runs split by a 2.5-min gap |
 | **B** | `exp2` | 103 | **1536×2048 TIF** | ≠M1 | different USB camera; non-physical colour → grayscale |
 | **C** | `exp3`–`exp7` | 5×99 | 1024×1280 JPG | ≈M1 | **ONE raft**, 5 sessions over ~10.7 h on 2026-06-16 |
-| **D** | `exp8` | 99 | 1024×1280 JPG | low | clearer render but foam fills only ~6% of frame → few pixels/bubble → *more* churn; see `docs/exp8_diagnostic.md` |
+| **D** | `exp8` | 99 | 1024×1280 JPG | low | foam fills only ~6% of frame → few px/bubble → *more* churn; see `docs/exp8_diagnostic.md` |
+| **E** | `exp9` | 99 | 1024×1280 JPG | high | foam fills ~50% but **coarse** (~34 large bubbles); needs `h_maxima≈8`; worst churn/bubble, 0 near-edge trusted; see `docs/exp9_diagnostic.md` |
 
 **Two invariants enforced by `foam_gnn.dataset`:**
 - **CV unit = foam.** Leave-one-foam-out = 3 folds (A, B, C) via

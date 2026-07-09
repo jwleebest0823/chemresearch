@@ -34,9 +34,10 @@ requires_data = pytest.mark.skipif(not _HAS_DATA, reason="raw data/ not present 
 
 # --------------------------- registry / grouping --------------------------- #
 def test_foams():
-    assert FOAMS == ("A", "B", "C", "D")
+    assert FOAMS == ("A", "B", "C", "D", "E")
     assert experiments_of_foam("C") == ("exp3", "exp4", "exp5", "exp6", "exp7")
-    assert experiments_of_foam("D") == ("exp8",)             # new independent foam
+    assert experiments_of_foam("D") == ("exp8",)             # independent foam
+    assert experiments_of_foam("E") == ("exp9",)             # new independent foam
 
 
 def test_registry_consistency():
@@ -115,7 +116,7 @@ def test_contiguous_runs_empty():
 def test_temporal_table_shape_and_structure():
     df = temporal_table(DATA_ROOT)
     assert len(df) == len(EXPERIMENTS)
-    assert set(df["foam"]) == {"A", "B", "C", "D"}
+    assert set(df["foam"]) == {"A", "B", "C", "D", "E"}
     # Foam C is 5 sessions, all on the same calendar day
     c = df[df["foam"] == "C"]
     assert len(c) == 5
