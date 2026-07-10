@@ -254,6 +254,11 @@ class EvalConfig:
     rollout_horizons: tuple[int, ...] = (1, 5, 20)
     n_bootstrap: int = 1000
     radial_bins: int = 8
+    # DECISION (modeling): a trusted segment is "dynamic" (vs "quiescent") when its
+    # total fractional area change |A_end-A_start|/A_start over the segment is >=
+    # this. Baselines/models are reported split on this so a "predict no change"
+    # model is not credited for the quiescent majority (dA/dt~0 by construction).
+    dynamic_frac_thresh: float = 0.10
 
 
 # --------------------------------------------------------------------------- #
