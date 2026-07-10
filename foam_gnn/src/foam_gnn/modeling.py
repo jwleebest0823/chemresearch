@@ -57,6 +57,9 @@ __all__ = [
     "predict_persistence",
     "predict_global_mean",
     "predict_per_bubble_linear",
+    "fit_von_neumann",
+    "predict_von_neumann",
+    "residual_structure",
     "mae",
     "cluster_bootstrap_ci",
     "paired_delta_ci",
@@ -213,6 +216,106 @@ def predict_per_bubble_linear(samples: pd.DataFrame) -> np.ndarray:
     """
     p = samples["past_slope"].to_numpy(dtype=float)
     return np.where(np.isfinite(p), p, 0.0)
+
+
+# --------------------------------------------------------------------------- #
+# von Neumann law:  dA/dt = K (n - 6)   (the physics anchor)
+# --------------------------------------------------------------------------- #
+def fit_von_neumann(
+    n_sides: np.ndarray,
+    dadt: np.ndarray,
+    *,
+    bubble_of: np.ndarray | None = None,
+    n_boot: int = 0,
+    seed: int = 0,
+) -> dict:
+    """Fit ``dA/dt = K (n-6)`` and report whether K is cleanly/physically fittable.
+
+    The physical model is a line **through the origin** (a hexagon, n=6, neither
+    grows nor shrinks), so ``K`` is the through-origin slope of ``dA/dt`` vs
+    ``(n-6)``; von Neumann requires ``K > 0``. Also reports the free (with-intercept)
+    OLS fit as a diagnostic — a large intercept or a free slope of different sign
+    means the through-origin law is a poor description.
+
+    Returns ``{K, K_ci, pearson_r, r2_origin, slope_free, intercept_free, n,
+    n_bubbles}``. ``K_ci`` is a cluster-bootstrap 95% CI on K (resampling whole
+    bubbles) when ``bubble_of`` and ``n_boot`` are given, else ``(nan, nan)``.
+    ``K`` is "cleanly fittable" iff ``K_ci`` is finite, entirely > 0.
+    """
+    x = np.asarray(n_sides, dtype=float) - 6.0
+    y = np.asarray(dadt, dtype=float)
+    m = np.isfinite(x) & np.isfinite(y)
+    x, y = x[m], y[m]
+    if bubble_of is not None:
+        bubble_of = np.asarray(bubble_of)[m]
+    if len(x) < 3 or np.sum(x * x) == 0:
+        return {"K": float("nan"), "K_ci": (float("nan"), float("nan")),
+                "pearson_r": float("nan"), "r2_origin": float("nan"),
+                "slope_free": float("nan"), "intercept_free": float("nan"),
+                "n": int(len(x)), "n_bubbles": 0}
+
+    def _k_origin(xx, yy):
+        sxx = float(np.sum(xx * xx))
+        return float(np.sum(xx * yy) / sxx) if sxx > 0 else float("nan")
+
+    K = _k_origin(x, y)
+    # variance explained by the through-origin model, vs predicting mean(y)
+    ss_res = float(np.sum((y - K * x) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    r2_origin = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+    pear = float(np.corrcoef(x, y)[0, 1]) if np.ptp(x) > 0 and np.ptp(y) > 0 else float("nan")
+    slope_free, intercept_free = (float(v) for v in np.polyfit(x, y, 1))
+    K_ci = (float("nan"), float("nan"))
+    if bubble_of is not None and n_boot > 0:
+        K_ci = cluster_bootstrap_ci(
+            lambda idx: _k_origin(x[idx], y[idx]), bubble_of, n_boot, seed=seed)
+    return {"K": K, "K_ci": K_ci, "pearson_r": pear, "r2_origin": r2_origin,
+            "slope_free": slope_free, "intercept_free": intercept_free,
+            "n": int(len(x)), "n_bubbles": int(np.unique(bubble_of).size) if bubble_of is not None else 0}
+
+
+def predict_von_neumann(samples: pd.DataFrame, K: float) -> np.ndarray:
+    """Predict ``dA/dt = K (n_sides - 6)`` with a fitted (train-foam) ``K``."""
+    return float(K) * (samples["n_sides"].to_numpy(dtype=float) - 6.0)
+
+
+def residual_structure(
+    samples: pd.DataFrame,
+    K: float,
+    cfg: PipelineConfig,
+    *,
+    seed: int = 0,
+) -> dict:
+    """Does the von Neumann residual ``dA/dt - K(n-6)`` carry LEARNABLE structure?
+
+    Spearman ρ (cluster-boot CI) of the residual vs distance-to-edge, vs n_sides,
+    and vs area — plus the residual's variance-reduction over the raw target. If no
+    correlation CI excludes 0 and the residual variance ≈ target variance, there is
+    nothing for a learned model to add over the classical law.
+    """
+    from scipy.stats import spearmanr
+
+    resid = samples["target_dadt"].to_numpy(dtype=float) - predict_von_neumann(samples, K)
+    bub = samples["bubble_uid"].to_numpy()
+    feats = {"distance_to_evap_edge": samples["distance_to_evap_edge"].to_numpy(dtype=float),
+             "n_sides": samples["n_sides"].to_numpy(dtype=float),
+             "area_t": samples["area_t"].to_numpy(dtype=float)}
+    out: dict = {}
+    for name, xv in feats.items():
+        m = np.isfinite(xv) & np.isfinite(resid)
+        if m.sum() < 5 or np.ptp(xv[m]) == 0:
+            out[name] = {"rho": float("nan"), "ci": (float("nan"), float("nan"))}
+            continue
+        rho = float(spearmanr(xv[m], resid[m]).correlation)
+        ci = cluster_bootstrap_ci(
+            lambda idx: spearmanr(xv[idx], resid[idx]).correlation
+            if np.ptp(xv[idx]) > 0 else np.nan,
+            bub[m], cfg.eval.n_bootstrap, seed=seed)
+        out[name] = {"rho": rho, "ci": ci, "resolved": bool(np.isfinite(ci[0]) and (ci[0] > 0 or ci[1] < 0))}
+    tgt = samples["target_dadt"].to_numpy(dtype=float)
+    out["resid_var_frac"] = float(np.nanvar(resid) / np.nanvar(tgt)) if np.nanvar(tgt) > 0 else float("nan")
+    out["n"] = int(len(samples))
+    return out
 
 
 # --------------------------------------------------------------------------- #

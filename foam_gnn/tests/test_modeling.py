@@ -14,11 +14,14 @@ from foam_gnn.config import PipelineConfig
 from foam_gnn.modeling import (
     TRUSTED_COLUMNS,
     evaluate_baselines,
+    fit_von_neumann,
     lofo_folds,
     make_horizon_samples,
     mae,
     predict_per_bubble_linear,
     predict_persistence,
+    predict_von_neumann,
+    residual_structure,
     segment_dynamic_flags,
     target_distribution,
 )
@@ -119,3 +122,51 @@ def test_target_distribution_monotone_horizon():
     td = target_distribution(df, cfg).set_index("scope")
     # fractional change grows with horizon (linear data, non-decreasing)
     assert td.loc["h=1", "median_abs_frac"] <= td.loc["h=5", "median_abs_frac"]
+
+
+def test_von_neumann_recovers_implanted_K():
+    # implant dA/dt = K*(n-6) exactly, K=0.7
+    rng = np.random.default_rng(0)
+    n = rng.integers(3, 10, size=400).astype(float)
+    K_true = 0.7
+    dadt = K_true * (n - 6.0)
+    bub = rng.integers(0, 40, size=400)
+    fit = fit_von_neumann(n, dadt, bubble_of=bub, n_boot=200)
+    assert fit["K"] == pytest.approx(K_true, abs=1e-9)
+    assert fit["r2_origin"] == pytest.approx(1.0, abs=1e-9)
+    assert fit["K_ci"][0] > 0  # cleanly fittable (CI entirely positive)
+    # free intercept ~0 for a pure through-origin law
+    assert abs(fit["intercept_free"]) < 1e-6
+
+
+def test_von_neumann_degenerate_and_negative_K():
+    # pure noise -> K CI should straddle 0 (not cleanly fittable)
+    rng = np.random.default_rng(1)
+    n = rng.integers(3, 10, size=300).astype(float)
+    dadt = rng.normal(0, 1, size=300)      # no relation to n
+    bub = rng.integers(0, 30, size=300)
+    fit = fit_von_neumann(n, dadt, bubble_of=bub, n_boot=300)
+    assert fit["K_ci"][0] < 0 < fit["K_ci"][1]   # straddles 0
+
+
+def test_residual_structure_detects_implanted_distance_dependence():
+    # dA/dt = K(n-6) + slope*distance  -> residual should correlate with distance
+    rng = np.random.default_rng(2)
+    n = 200
+    rows = []
+    for b in range(20):
+        for k in range(10):
+            nn = rng.integers(3, 10)
+            dist = rng.uniform(0, 100)
+            dadt = 0.5 * (nn - 6) + 0.05 * dist   # distance term the law misses
+            rows.append({"foam": "A", "session": "s", "seg_uid": f"s:{b}",
+                         "bubble_uid": f"s:{b}", "frame": k, "horizon": 5,
+                         "area_t": 2000.0, "time_t": 30.0 * k, "n_sides": float(nn),
+                         "distance_to_evap_edge": dist, "target_dadt": dadt,
+                         "target_frac": 0.0, "past_slope": np.nan})
+    s = pd.DataFrame(rows)
+    cfg = PipelineConfig()
+    K = fit_von_neumann(s["n_sides"].to_numpy(), s["target_dadt"].to_numpy())["K"]
+    rs = residual_structure(s, K, cfg)
+    assert rs["distance_to_evap_edge"]["resolved"]        # CI excludes 0
+    assert rs["distance_to_evap_edge"]["rho"] > 0.3
