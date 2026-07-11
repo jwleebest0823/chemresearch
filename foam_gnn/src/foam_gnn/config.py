@@ -303,6 +303,39 @@ class StabilityConfig:
 
 
 # --------------------------------------------------------------------------- #
+# Segmentation evaluation (ground-truth harness + stratification)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class SegEvalConfig:
+    """Config for the ground-truth + temporal segmentation-evaluation harnesses.
+
+    The whole point is STRATIFICATION: a method that is accurate on large interior
+    bubbles and fails on small near-edge ones must be exposed, not averaged. So both
+    harnesses bin every metric by bubble size and by distance-to-evaporation-edge.
+    """
+
+    # DECISION: per-bubble detection is scored by one-to-one Hungarian matching on
+    # the IoU matrix; a matched pair is a true positive only if IoU >= the threshold.
+    # Report at several thresholds (loose detection -> strict boundary agreement).
+    iou_thresholds: tuple[float, ...] = (0.5, 0.75, 0.9)
+    iou_primary: float = 0.5                       # threshold used for stratified tables
+    # DECISION: size bins are GT-area TERCILES (small/medium/large) computed on the
+    # pooled labeled set, so "small" is data-relative, not an absolute px cutoff.
+    n_size_bins: int = 3
+    size_bin_labels: tuple[str, ...] = ("small", "medium", "large")
+    # DECISION: distance-to-edge bins are fixed fractional shells of the max GT
+    # distance (near-edge .. interior); near-edge is bin 0 (the population the project
+    # needs and current segmentation loses).
+    n_dist_bins: int = 4
+    # DECISION: a predicted region "covers" a GT bubble (for split/merge counting)
+    # when it takes at least this fraction of the GT bubble's area (and vice versa).
+    cover_frac: float = 0.20
+    # Ground-truth validation thresholds.
+    gt_min_bubble_area_px: int = 8                 # warn: labels below this may be annotation noise
+    gt_root: str = "groundtruth"                   # dir holding <exp>/f<idx>.png + manifest.csv
+
+
+# --------------------------------------------------------------------------- #
 # Top-level
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
@@ -320,3 +353,4 @@ class PipelineConfig:
     train: TrainConfig = field(default_factory=TrainConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     stability: StabilityConfig = field(default_factory=StabilityConfig)
+    seg_eval: SegEvalConfig = field(default_factory=SegEvalConfig)
