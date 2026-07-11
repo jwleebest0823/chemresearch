@@ -303,6 +303,43 @@ class StabilityConfig:
 
 
 # --------------------------------------------------------------------------- #
+# Temporal marker-propagation segmentation (attacks temporal identity stability)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class PropagateConfig:
+    """Temporally-coupled watershed: frame t+1 is seeded from frame t's stable-ID
+    labels (warped by the measured drift), so a persistent bubble keeps ONE marker
+    and therefore ONE identity by construction. This structurally SUPPRESSES the two
+    spurious events (a bubble splitting into two ids, or being re-minted) while
+    still ALLOWING the two genuine ones (a bubble merging, or disappearing).
+    """
+
+    # DECISION: erode a warped previous bubble to a safe interior "seed core" before
+    # re-seeding, so small drift/shape change doesn't leak the marker across a film.
+    erode_seed_px: int = 2
+    # DECISION: if a bubble's eroded seed core (∩ current interior) falls below this,
+    # the bubble has collapsed -> treat as a genuine disappearance (T2), don't re-seed.
+    min_seed_area_px: int = 5
+    # DECISION: a genuine MERGE is detected post-watershed when the shared boundary
+    # between two PRE-EXISTING bubbles carries film ridge below this (normalized [0,1])
+    # -> the film is gone, so dissolve the boundary (keep_larger id). Above it the two
+    # are kept apart (a real film -> NOT a merge, and the single-marker seeding already
+    # forbids a spurious split).
+    merge_film_thresh: float = 0.12
+    merge_min_border_px: int = 4          # ignore 1-2px adjacency flicker when judging a merge
+    # DECISION: adaptive new-bubble markers — small bubbles get seeds at their LOCAL
+    # scale instead of one global h_maxima. peak_local_max on the distance transform
+    # with a small min separation catches small bubbles; a small dt floor rejects noise.
+    new_seed_min_distance_px: int = 4
+    new_seed_min_dt: float = 2.0
+    new_seed_min_area_px: int = 8         # a new basin below this is absorbed, not born
+    # DECISION: drift is estimated by phase cross-correlation of consecutive foam masks
+    # (sub-pixel), the same translation model Module 2 uses; clipped if implausibly large.
+    drift_upsample: int = 10
+    drift_max_px: float = 40.0
+
+
+# --------------------------------------------------------------------------- #
 # Segmentation evaluation (ground-truth harness + stratification)
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
@@ -354,3 +391,4 @@ class PipelineConfig:
     eval: EvalConfig = field(default_factory=EvalConfig)
     stability: StabilityConfig = field(default_factory=StabilityConfig)
     seg_eval: SegEvalConfig = field(default_factory=SegEvalConfig)
+    propagate: PropagateConfig = field(default_factory=PropagateConfig)

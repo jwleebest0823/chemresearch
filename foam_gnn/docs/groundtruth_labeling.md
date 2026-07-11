@@ -31,25 +31,49 @@ exp1,1,exp1/f001.png,JW,2026-07-11,consecutive with f000
 ```
 `path` is relative to `groundtruth/`. `frame_index` is the **absolute** index within
 the experiment (matches `qc/cache/<exp>/f<idx>.npz` and the pipeline's frame numbering).
+The `set` column tags each frame `eval` or `train` (see the split below).
 
-## Which frames to label (recommendation, ~16 frames)
-Two goals: (a) **consecutive pairs** so the temporal split/merge metric can be validated
-against GT between `t` and `t+1`; (b) **spread across the coarsening timeline** (dense
-→ coarse) and across both foams. `dev/export_label_frames.py` writes these raw frames as
-PNGs into `groundtruth/tolabel/` and a manifest template.
+## Which frames to label — ~30 frames, split into EVAL and TRAIN
+Two disjoint sets so a learned method (Cellpose/StarDist/μSAM fine-tune) can train
+without ever touching the evaluation frames:
+* **EVAL (~16, held out, NEVER trained on)** — the scoring set for every method.
+* **TRAIN (~14, separate)** — only for fine-tuning a supervised method.
 
+**Disjointness (# DECISION):** kept **session-disjoint on Foam C** (eval = `exp3,exp5`;
+train = `exp4,exp6,exp7`) so no Foam-C session appears in both. Foam A has only one
+session (`exp1`), so its train/eval frames are **frame-disjoint and well-separated**
+instead. The primary evaluation discipline is still **leave-one-foam-out** (fit on one
+foam's labeled frames, report on the other); the set split is an extra guard so no frame
+is both fit and scored. Goals within each set: **consecutive pairs** (so the temporal
+split/merge metric can be validated between `t` and `t+1`) spread across the coarsening
+timeline (dense → coarse).
+
+### EVAL set (16 frames)
 | foam | exp | frames | why |
 |---|---|---|---|
-| A | exp1 | 0, 1 | dense early; consecutive pair |
-| A | exp1 | 49, 50 | mid coarsening; consecutive pair |
-| A | exp1 | 97, 98 | late/coarse; consecutive pair |
-| C | exp3 | 0, 1 | Foam C dense early; consecutive pair |
-| C | exp5 | 40, 41 | Foam C mid; consecutive pair |
-| C | exp7 | 97, 98 | Foam C late/coarse; consecutive pair |
-| C | exp4 | 50 | extra coarsening state (single) |
-| C | exp6 | 50 | extra coarsening state (single) |
+| A | exp1 | 0, 1 | dense early (run0); pair |
+| A | exp1 | 49, 50 | mid (run0); pair |
+| A | exp1 | 97, 98 | late/coarse (run0); pair |
+| A | exp1 | 148, 149 | run1 mid; pair |
+| C | exp3 | 0, 1 | Foam C dense early; pair |
+| C | exp3 | 49, 50 | Foam C mid; pair |
+| C | exp3 | 97, 98 | Foam C late; pair |
+| C | exp5 | 49, 50 | different session, mid; pair |
 
-Consecutive pairs are the important part; add singletons only if time allows.
+### TRAIN set (14 frames) — disjoint sessions (C) / disjoint frames (A)
+| foam | exp | frames | why |
+|---|---|---|---|
+| A | exp1 | 24, 25 | run0, between eval frames; pair |
+| A | exp1 | 73, 74 | run0, between eval frames; pair |
+| A | exp1 | 120, 121 | run1; pair |
+| C | exp4 | 0, 1 | train-only session; pair |
+| C | exp4 | 49, 50 | train-only session; pair |
+| C | exp6 | 49, 50 | train-only session; pair |
+| C | exp7 | 49, 50 | train-only session; pair |
+
+Consecutive pairs are the important part. `dev/export_label_frames.py` writes the EVAL
+frames to `groundtruth/tolabel/eval/` and TRAIN frames to `groundtruth/tolabel/train/`,
+with a `set` column in the manifest template.
 
 ## Napari workflow
 1. Open the raw frame (from `groundtruth/tolabel/<exp>_f<idx>.png`) as an **Image**.
