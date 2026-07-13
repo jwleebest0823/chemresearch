@@ -17,21 +17,58 @@ exactly so the loader/validator accepts the masks without manual fixups.
 ## Directory layout
 ```
 foam_gnn/groundtruth/
-├── manifest.csv                 # provenance of every labeled frame
-├── exp1/ f000.png f001.png ...  # 16-bit label masks, filename = abs frame index
-├── exp3/ f000.png ...
-└── ...
+├── manifest.csv                 # provenance of every labeled frame (COMMITTED)
+├── eval/exp1/ f000.png ...      # 16-bit hand-CORRECTED label masks (COMMITTED)
+├── eval/exp3/ f000.png ...
+├── train/exp4/ f000.png ...
+├── tolabel/{eval,train}/*.png   # raw frame exports for Napari (gitignored, regenerable)
+└── preseed/{eval,train}/<exp>/*.png   # cached automatic pre-seeds (gitignored, regenerable)
 ```
-`manifest.csv` columns (required: `exp, frame_index, path`; optional: `labeler, date,
-notes`):
+Only the hand-corrected masks under `eval/`, `train/` and `manifest.csv` are committed
+to git — `tolabel/` and `preseed/` are caches regenerable from gitignored `data/` via
+`dev/export_label_frames.py` / `dev/preseed_labels.py`.
+`manifest.csv` columns (required by the loader: `exp, frame_index, path`; the rest are
+written automatically by `label.py`, not filled in by hand):
 ```
-exp,frame_index,path,labeler,date,notes
-exp1,0,exp1/f000.png,JW,2026-07-11,dense early frame
-exp1,1,exp1/f001.png,JW,2026-07-11,consecutive with f000
+set,exp,frame_index,path,labeler,date,notes,seed_method,preseed_source
+eval,exp1,0,eval/exp1/f000.png,JW,2026-07-11,dense early frame,propagated_segmenter_correction,cache
+eval,exp1,1,eval/exp1/f001.png,JW,2026-07-11,consecutive with f000,propagated_segmenter_correction,cache
 ```
 `path` is relative to `groundtruth/`. `frame_index` is the **absolute** index within
 the experiment (matches `qc/cache/<exp>/f<idx>.npz` and the pipeline's frame numbering).
-The `set` column tags each frame `eval` or `train` (see the split below).
+The `set` column tags each frame `eval` or `train` (see the split below). Two more
+columns, `seed_method` and `preseed_source`, are written automatically by `label.py`
+— see **Correction-based annotation** below; they are provenance, not something you
+fill in by hand.
+
+## Correction-based annotation — methodology and its bias (read this)
+Hand-labeling ~30 frames fully from scratch (each has 150–300+ bubbles) is
+**infeasible** — 40+ hours of work. `label.py` instead uses standard **correction-based
+annotation**: it pre-seeds the Napari labels layer with the CURRENT temporal
+marker-propagation segmentation (`foam_gnn.propagate`) for that exact frame, and you
+correct its errors (delete false regions, split/merge, add missed bubbles) rather than
+draw every bubble by hand.
+
+**This is a real methodological caveat, stated plainly, not buried:** correction-based
+ground truth is **biased toward the seeding method**. An annotator correcting a
+segmentation is less likely to notice an error the segmenter makes *consistently*
+(there's no proposed region there to look at) than one drawing independently —
+"rubber-stamping". The bias is worst exactly on the population this project depends
+on: bubbles the propagated segmenter **misses entirely**, especially small ones near
+the evaporation edge. **Any evaluation or paper using this GT must disclose that it is
+correction-based, seeded from `foam_gnn.propagate`, not drawn independently.**
+
+Two mitigations (neither removes the bias, both are load-bearing):
+1. **Provenance is recorded per-frame.** `label.py` writes `seed_method` (
+   `propagated_segmenter_correction` / `blank_manual` / `unknown_legacy_resume`) and
+   `preseed_source` (`cache` / `computed`) to `manifest.csv` automatically, and
+   **preserves** the original value across every later resume-and-correct session (it
+   is set once, on first save, never silently overwritten).
+2. **Audit mode.** In Napari, press **`V`** (the built-in "toggle selected layer
+   visibility" binding) to **hide the pre-seed entirely** and see the bare raw frame.
+   Use this deliberately to hunt for bubbles the segmenter never proposed — especially
+   small, near-edge ones — before/in addition to correcting the seeded labels. Press
+   `V` again to bring the labels back.
 
 ## Which frames to label — ~30 frames, split into EVAL and TRAIN
 Two disjoint sets so a learned method (Cellpose/StarDist/μSAM fine-tune) can train
@@ -75,17 +112,30 @@ Consecutive pairs are the important part. `dev/export_label_frames.py` writes th
 frames to `groundtruth/tolabel/eval/` and TRAIN frames to `groundtruth/tolabel/train/`,
 with a `set` column in the manifest template.
 
-## Napari workflow
-1. Open the raw frame (from `groundtruth/tolabel/<exp>_f<idx>.png`) as an **Image**.
-2. Add a **Labels** layer; paint one integer per bubble (use the fill/brush; increment
-   the label id per bubble). Zoom in for the small/near-edge bubbles.
-3. Save the Labels layer as PNG (`File ▸ Save Selected Layer…`, or
-   `imageio.imwrite(path, labels_layer.data.astype('uint16'))`) to
-   `groundtruth/<exp>/f<idx>.png`.
-4. Add the row to `manifest.csv`.
+## Napari workflow — `label.py`
+0. **One-time setup:** `python dev/export_label_frames.py` exports the 30 raw frames
+   to `groundtruth/tolabel/{eval,train}/`, then `python dev/preseed_labels.py`
+   pre-computes and caches the propagated-segmenter seed for every one of them to
+   `groundtruth/preseed/{eval,train}/<exp>/f<idx>.png` (segments each session prefix
+   once; ~10–15 min per Foam-C session, faster for Foam A — run it once up front so
+   `label.py` opens instantly instead of re-segmenting on every launch).
+1. Edit the three lines at the top of `label.py` (`SET`, `EXP`, `FRAME_IDX`) — or set
+   env vars `GT_SET` / `GT_EXP` / `GT_FRAME` — to the frame you're labeling. Run
+   `GT_LIST=1 python label.py` to print the full planned list.  Then: `python label.py`
+   (run from the `foam_gnn/` directory).
+2. Napari opens with the labels layer **pre-seeded** from the cached (or, if missing,
+   freshly computed) propagated segmentation — see **Correction-based annotation**
+   above. **Correct it**: delete false regions, split/merge, and — using audit mode
+   (`V`) — add bubbles the seed missed entirely. The printed on-launch cheat sheet
+   covers the exact keybindings and correction recipes (erase/paint/fill/picker/new
+   label/undo/audit toggle).
+3. Close the window — it **saves automatically** to `groundtruth/<set>/<exp>/f<idx>.png`
+   and writes/updates the `manifest.csv` row (path, provenance, and any `GT_LABELER` /
+   `GT_DATE` / `GT_NOTES` env vars you set) for you. Re-running `label.py` on the same
+   frame **resumes** from the saved corrected mask (never re-seeds, never loses work).
 
 ## Validation
 `foam_gnn.seg_eval.load_gt_frame` fails loud on wrong shape, non-integer or negative
 labels, and warns (`n_tiny`) on labels below `SegEvalConfig.gt_min_bubble_area_px`
-(possible annotation specks). Run `dev/check_gt.py` (provided) after labeling to
-validate every manifest row before evaluation.
+(possible annotation specks). Run `dev/check_gt.py` after labeling to validate every
+manifest row before evaluation.

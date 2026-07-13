@@ -23,6 +23,15 @@ qc/
 # exports/README_csv.md by the exporter.
 exports/
 
+# Ground-truth labeling: tolabel/ (raw frame exports) and preseed/ (cached automatic
+# pre-seed segmentations) are both REGENERABLE from gitignored data/ (dev/export_
+# label_frames.py, dev/preseed_labels.py). The hand-corrected labels themselves
+# (groundtruth/<set>/<exp>/*.png) + manifest.csv (provenance) ARE committed — they
+# are the actual research artifact and its audit trail.
+groundtruth/tolabel/
+groundtruth/preseed/
+groundtruth/manifest_template.csv
+
 # Python
 __pycache__/
 *.py[cod]
