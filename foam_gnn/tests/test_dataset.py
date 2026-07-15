@@ -34,10 +34,11 @@ requires_data = pytest.mark.skipif(not _HAS_DATA, reason="raw data/ not present 
 
 # --------------------------- registry / grouping --------------------------- #
 def test_foams():
-    assert FOAMS == ("A", "B", "C", "D", "E")
+    assert FOAMS == ("A", "B", "C", "D", "E", "F")
     assert experiments_of_foam("C") == ("exp3", "exp4", "exp5", "exp6", "exp7")
     assert experiments_of_foam("D") == ("exp8",)             # independent foam
     assert experiments_of_foam("E") == ("exp9",)             # new independent foam
+    assert experiments_of_foam("F") == ("exp10",)            # 10 s-interval foam
 
 
 def test_registry_consistency():
@@ -116,13 +117,16 @@ def test_contiguous_runs_empty():
 def test_temporal_table_shape_and_structure():
     df = temporal_table(DATA_ROOT)
     assert len(df) == len(EXPERIMENTS)
-    assert set(df["foam"]) == {"A", "B", "C", "D", "E"}
+    assert set(df["foam"]) == {"A", "B", "C", "D", "E", "F"}
     # Foam C is 5 sessions, all on the same calendar day
     c = df[df["foam"] == "C"]
     assert len(c) == 5
     assert c["start"].dt.date.nunique() == 1
-    # within-run interval is ~30 s everywhere
-    assert (df["dt_median_s"].between(29.0, 31.0)).all()
+    # within-run interval is ~30 s everywhere EXCEPT Foam F (exp10) which is 10 s
+    # (acquired to test von Neumann's sampling-rate sensitivity; see Gate 2).
+    non_f = df[df["foam"] != "F"]
+    assert (non_f["dt_median_s"].between(29.0, 31.0)).all()
+    assert df[df["foam"] == "F"]["dt_median_s"].between(9.0, 11.0).all()
 
 
 @requires_data

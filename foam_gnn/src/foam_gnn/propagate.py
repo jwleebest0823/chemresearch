@@ -273,7 +273,12 @@ def segment_track_propagated(images: list[np.ndarray], cfg: PipelineConfig) -> t
         frame_offsets.append((cum_x, cum_y))
         Lw = ndi.shift(L, shift=(dy, dx), order=0, mode="constant", cval=0).astype(np.int32)
 
-        maxid = int(Lw.max())
+        # Size the count arrays to cover EVERY previous id, not just those still in
+        # the warped map: a bubble whose warped footprint drifted off-frame has
+        # Lw.max() < L.max(), so indexing er_area[prev_id] would be out of bounds.
+        # Padding with zeros makes such a bubble read as area 0 -> genuine
+        # disappearance (T2), which is exactly correct.
+        maxid = int(max(int(Lw.max()), int(L.max())))
         raw_seed = np.where(layers.interior, Lw, 0).astype(np.int32)
         bnd_zone = ndi.binary_dilation(find_boundaries(Lw, mode="outer"),
                                        iterations=pcfg.erode_seed_px)

@@ -122,8 +122,9 @@ FOAM_SESSIONS: dict[str, tuple[str, ...]] = {
     "C": ("exp3", "exp4", "exp5", "exp6", "exp7"),
     "D": ("exp8",),
     "E": ("exp9",),
+    "F": ("exp10",),
 }
-FOAMS: tuple[str, ...] = tuple(FOAM_SESSIONS)  # ("A", "B", "C", "D", "E")
+FOAMS: tuple[str, ...] = tuple(FOAM_SESSIONS)  # ("A", "B", "C", "D", "E", "F")
 
 EXPERIMENTS: dict[str, ExperimentMeta] = {
     "exp1": ExperimentMeta(
@@ -156,6 +157,15 @@ EXPERIMENTS: dict[str, ExperimentMeta] = {
               "Foam-A 4.0, which over-segments the large bubbles with false interior "
               "splits: n@f000 141->34). Global default stays 4.0; exp9 segmented via "
               "the H_MAXIMA override in dev/segment_run.py.",
+    ),
+    "exp10": ExperimentMeta(
+        "exp10", "F", (1024, 1280), ".jpg", interval_seconds=10.0,
+        notes="Foam F; independent foam; KEY: acquired at a 10 s inter-frame interval "
+              "(vs 30 s for A/C/D/E) to test whether the Gate-2 von Neumann failure is a "
+              "temporal-undersampling artifact. One continuous session, 503 frames @10 s "
+              "(2026-07-12, 83.7 min, no internal gaps); 1024x1280 JPG, non-physical "
+              "colour cast discarded -> grayscale; own CV fold. Segmentation uses the "
+              "global default h_maxima=4.0 (same imaging as Foam A/C; see the diagnostic).",
     ),
 }
 

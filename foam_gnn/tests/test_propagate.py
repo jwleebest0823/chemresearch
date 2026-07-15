@@ -96,3 +96,17 @@ def test_propagated_detects_merge():
     merges = [e for e in tr.events if e.kind == "merge"]
     # dissolving a film between two established bubbles should register as a merge
     assert len(merges) >= 1
+
+
+def test_propagated_survives_large_drift_edge_loss():
+    # regression: when the foam translates enough that edge bubbles (possibly the
+    # highest id) drift OFF-frame, the warped map's max id < previous map's max id;
+    # the seed-area count arrays must be sized to cover every previous id (padded
+    # with zeros => those bubbles read as disappeared), not just those still visible.
+    from scipy import ndimage as ndi
+    f0 = _foam_frame()
+    f1 = ndi.shift(f0, shift=(6, 18), order=0, cval=130).astype(np.uint8)   # per-step drift < clamp
+    f2 = ndi.shift(f0, shift=(12, 34), order=0, cval=130).astype(np.uint8)
+    results, tr = segment_track_propagated([f0, f1, f2], CFG)   # must not raise
+    assert len(tr.id_maps) == 3
+    assert tr.diagnostics["frame0_max_id"] >= 4
