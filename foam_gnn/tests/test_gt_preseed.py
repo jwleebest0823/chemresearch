@@ -97,6 +97,33 @@ def test_upsert_manifest_row_inserts_and_preserves_seed_method(tmp_path):
     assert row2["notes"] == "second pass"
 
 
+def test_frame_status_drives_the_resume_vs_reseed_decision(tmp_path):
+    # A mask marked `inspected_not_corrected` is an untouched pre-seed, NOT work in
+    # progress: label.py must re-seed from the current segmenter rather than resume
+    # from a stale (possibly defective) pre-seed. This pins the status lookup that
+    # decision depends on.
+    from foam_gnn.gt_preseed import STATUS_INSPECTED, frame_status
+    upsert_manifest_row(tmp_path, "eval", "exp1", 0, seed_method=SEED_PROPAGATED,
+                        status="in_progress")
+    upsert_manifest_row(tmp_path, "eval", "exp1", 49, seed_method=SEED_PROPAGATED,
+                        status=STATUS_INSPECTED)
+    assert frame_status(tmp_path, "eval", "exp1", 0) == "in_progress"
+    assert frame_status(tmp_path, "eval", "exp1", 49) == STATUS_INSPECTED
+    assert frame_status(tmp_path, "eval", "exp1", 999) == ""       # no row -> no status
+
+
+def test_load_gt_manifest_excludes_uncorrected_preseeds(tmp_path):
+    # the guard that makes it impossible to score the segmenter against its own output
+    from foam_gnn.seg_eval import load_gt_manifest
+    from foam_gnn.gt_preseed import STATUS_INSPECTED
+    upsert_manifest_row(tmp_path, "eval", "exp1", 0, seed_method=SEED_PROPAGATED,
+                        status="in_progress")
+    upsert_manifest_row(tmp_path, "eval", "exp1", 49, seed_method=SEED_PROPAGATED,
+                        status=STATUS_INSPECTED)
+    assert len(load_gt_manifest(tmp_path)) == 1                     # usable only
+    assert len(load_gt_manifest(tmp_path, usable_only=False)) == 2  # audit view
+
+
 def test_upsert_manifest_row_distinct_frames_are_separate_rows(tmp_path):
     upsert_manifest_row(tmp_path, "eval", "exp1", 0, seed_method=SEED_PROPAGATED)
     upsert_manifest_row(tmp_path, "eval", "exp1", 1, seed_method=SEED_PROPAGATED)

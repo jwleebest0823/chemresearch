@@ -25,8 +25,10 @@ from foam_gnn.gt_preseed import (
     SEED_BLANK,
     SEED_PROPAGATED,
     SEED_UNKNOWN_LEGACY,
+    STATUS_INSPECTED,
     compute_or_load_preseed,
     corrected_path,
+    frame_status,
     frame_tag,
     raw_frame_path,
     upsert_manifest_row,
@@ -65,7 +67,17 @@ if img.ndim == 3:
     img = img[..., 0]
 
 # ── resume > pre-seed > blank (# DECISION: never clobber in-progress work) ───────
-if out.exists():
+# ...BUT a file marked `inspected_not_corrected` is NOT work in progress: it is an
+# untouched pre-seed from a frame that was opened and abandoned. Resuming from it would
+# silently restart you on a STALE (and, for pre-2026-07-15 frames, defective) pre-seed
+# instead of the current one. Treat it as absent and re-seed.
+_status = frame_status(GT_ROOT, SET, EXP, FRAME_IDX)
+if out.exists() and _status == STATUS_INSPECTED:
+    print(f"NOTE: {out.name} is marked '{STATUS_INSPECTED}' in the manifest — it holds an "
+          f"untouched pre-seed, not hand-corrected work, so it is being RE-SEEDED from the "
+          f"current segmenter rather than resumed. (The old file is left on disk.)")
+
+if out.exists() and _status != STATUS_INSPECTED:
     labels = iio.imread(out).astype(np.uint16)
     # provenance is PRESERVED (not rewritten) if a manifest row already exists for this
     # frame; this fallback only fires if it doesn't (e.g. pre-dates this provenance

@@ -56,6 +56,7 @@ __all__ = [
     "SEED_BLANK",
     "SEED_UNKNOWN_LEGACY",
     "MANIFEST_COLUMNS",
+    "frame_status",
     "STATUS_IN_PROGRESS",
     "STATUS_FINAL",
     "STATUS_INSPECTED",
@@ -251,6 +252,24 @@ def compute_or_load_preseed(
 # --------------------------------------------------------------------------- #
 # Manifest provenance (# DECISION: preserve first-write seed_method on resume)
 # --------------------------------------------------------------------------- #
+def frame_status(gt_root: str | Path, dset: str, exp: str, frame_index: int) -> str:
+    """The manifest ``status`` for one frame, or ``""`` if it has no row.
+
+    Used by ``label.py`` to decide whether an existing mask on disk is genuine
+    work-in-progress (resume it) or merely an untouched pre-seed that was opened and
+    abandoned (do NOT resume — re-seed, so a stale pre-seed is not mistaken for GT).
+    """
+    man = Path(gt_root) / "manifest.csv"
+    if not man.is_file():
+        return ""
+    df = pd.read_csv(man, keep_default_na=False)
+    if "status" not in df.columns:
+        return ""
+    hit = df[(df["set"] == dset) & (df["exp"] == exp)
+             & (df["frame_index"].astype(int) == int(frame_index))]
+    return str(hit.iloc[0]["status"]).strip() if len(hit) else ""
+
+
 def upsert_manifest_row(
     gt_root: str | Path,
     dset: str,
