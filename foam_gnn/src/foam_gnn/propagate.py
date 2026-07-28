@@ -1,35 +1,46 @@
 """
 foam_gnn.propagate
 ==================
-**Temporal marker-propagation watershed** — a temporally-coupled segmenter that
-attacks the project's binding failure directly: *temporal identity stability of
-small and near-edge bubbles*, not per-frame boundary quality (Plateau is already
-~99%).
+**Identity-propagating segmentation** — a temporally-coupled segmenter that attacks
+the project's binding failure directly: *temporal identity stability of small and
+near-edge bubbles*, not per-frame boundary quality (Plateau is already ~99%).
 
-The idea
---------
-Segment frame 0 normally, then segment every later frame by seeding its watershed
-from the **previous frame's stable-ID label map**, warped by the measured
-inter-frame drift. Each persistent bubble contributes exactly **one marker carrying
-its own id**, so:
+The idea (v2 — after the ratchet defect; see docs/propagation_ratchet_defect.md)
+--------------------------------------------------------------------------------
+**v1 propagated GEOMETRY and that was a one-way ratchet.** Seeding frame *t+1* from
+frame *t*'s label map let a marker come to own several bubbles, and nothing could
+ever split it apart, so under-segmentation compounded monotonically (Foam A:
+385 → 104 bubbles while an independent per-frame segmentation of the same frames
+found 219; one label swallowed up to 34 bubbles by frame 12).
 
-* a bubble **cannot spuriously split** into two ids (one marker → one basin), and
-* a bubble **cannot be re-minted** as a new id (its marker keeps the old id).
+**v2 propagates IDENTITY onto geometry that is re-derived every frame**, under one
+invariant:
 
-These are precisely the two events that produced the ~10–20 reorganization-births
-per bubble. The two *genuine* topology changes are still allowed:
+> **Every interior blob receives exactly one marker.**
 
-* **merge** — detected *after* watershed: if the shared boundary between two
-  previously-separate bubbles no longer carries a film ridge, the film has burst;
-  the boundary is dissolved and the smaller id is absorbed (``keep_larger``), and a
-  ``merge`` event is emitted.
-* **disappearance (T2)** — a bubble whose interior has collapsed below a seed-area
-  floor is not re-seeded; its id ends and a ``T2_disappear`` event is emitted.
+A marker therefore cannot span two bubbles, so swallowing is structurally impossible
+and splits happen automatically. Identity is then assigned per blob by pixel overlap
+with the drift-warped previous stable map:
 
-**Adaptive markers** seed genuinely new / newly-resolved small bubbles at their
-*local* scale (``peak_local_max`` on the distance transform with a small separation
-and dt floor) rather than a single global ``h_maxima``, so small bubbles are not
-missed.
+* one dominant previous id            → that id (**identity preserved** — the point of propagation)
+* ≥2 previous ids share one blob      → **merge** (``keep_larger`` by previous area);
+  the loser goes **dormant**, and the merge event is only emitted after it survives
+  ``probation_frames`` (so merge-flicker costs nothing)
+* one previous id spans ≥2 blobs      → **split**: it keeps its best-overlap blob and
+  the others are resolved as below
+* no previous id                      → new bubble
+
+**Geometry vs identity (the key decision).** Geometry splits are *ungated* — two blobs
+separated by film in this frame ARE two regions. Only the *identity* decision is gated,
+since only it can manufacture churn: **resurrect** a dormant id first (costs zero
+churn), else require either a strong separating ridge (``split_film_thresh`` >
+``interior_thresh``, a hysteresis band that stops borderline films oscillating between
+merge and split) or ``probation_frames`` of persistence before minting a new id. A
+provisional id whose separation does not survive probation is retired **retroactively**,
+so it never appears as a reorganization birth.
+
+A **collapse guard** compares the region count to the independent interior-blob count
+every frame and fails loud on the ratchet signature.
 
 Output
 ------
@@ -123,14 +134,19 @@ def _unseeded_blob_seeds(interior, dt, seed_markers, start_id, min_area):
     return markers, nid
 
 
-def _seed_frame0(layers: FrameLayers, cfg: PipelineConfig):
+def _seed_frame0(layers: FrameLayers, cfg: PipelineConfig, interior: np.ndarray | None = None):
     """Frame-0 markers = global h_maxima seeds (splits touching bubbles) + one seed for
-    every interior blob a global h_maxima misses (small bubbles)."""
+    every interior blob a global h_maxima misses (small bubbles).
+
+    ``interior`` overrides ``layers.interior`` — pass the TIGHT-masked interior so the
+    generous foam mask's flat background rim is not seeded as a bubble.
+    """
     seg = cfg.seg
-    base = h_maxima(layers.dt, seg.h_maxima) * layers.foam
+    inter = layers.interior if interior is None else interior
+    base = h_maxima(layers.dt, seg.h_maxima) * (layers.foam if interior is None else interior)
     markers, n_base = ndi.label(base)
     markers = markers.astype(np.int32)
-    extra, _ = _unseeded_blob_seeds(layers.interior, layers.dt, markers,
+    extra, _ = _unseeded_blob_seeds(inter, layers.dt, markers,
                                     n_base + 1, seg.min_bubble_area_px)
     return np.where(extra > 0, extra, markers)
 
@@ -162,54 +178,6 @@ def _estimate_drift(foam_prev: np.ndarray, foam_curr: np.ndarray, cfg) -> tuple[
     return dy, dx
 
 
-def _pair_border_film(labels: np.ndarray, film: np.ndarray) -> dict[tuple[int, int], tuple[float, int]]:
-    """Mean film ridge value and pixel count along each adjacent label pair's border.
-
-    Returns ``{(lo, hi): (mean_film, n_border_px)}`` using 4-connectivity.
-    """
-    maxid = int(labels.max())
-    if maxid == 0:
-        return {}
-    sums: dict[tuple[int, int], float] = {}
-    cnts: dict[tuple[int, int], int] = {}
-
-    def acc(a, b, fa, fb):
-        m = (a > 0) & (b > 0) & (a != b)
-        if not m.any():
-            return
-        aa, bb = a[m], b[m]
-        lo = np.minimum(aa, bb)
-        hi = np.maximum(aa, bb)
-        fv = 0.5 * (fa[m] + fb[m])
-        key = lo.astype(np.int64) * (maxid + 1) + hi.astype(np.int64)
-        for k, v in zip(key, fv):
-            sums[k] = sums.get(k, 0.0) + float(v)
-            cnts[k] = cnts.get(k, 0) + 1
-
-    acc(labels[:, :-1], labels[:, 1:], film[:, :-1], film[:, 1:])
-    acc(labels[:-1, :], labels[1:, :], film[:-1, :], film[1:, :])
-    out: dict[tuple[int, int], tuple[float, int]] = {}
-    for k, n in cnts.items():
-        lo, hi = divmod(int(k), maxid + 1)
-        out[(lo, hi)] = (sums[k] / n, n)
-    return out
-
-
-class _UF:
-    def __init__(self):
-        self.p: dict[int, int] = {}
-
-    def find(self, x):
-        self.p.setdefault(x, x)
-        while self.p[x] != x:
-            self.p[x] = self.p[self.p[x]]
-            x = self.p[x]
-        return x
-
-    def union(self, a, b):
-        self.p[self.find(a)] = self.find(b)
-
-
 def _region_props(labels: np.ndarray) -> dict[int, tuple[int, float, float]]:
     """{id: (area, cx, cy)} native centroids, via find_objects (bbox-limited)."""
     out: dict[int, tuple[int, float, float]] = {}
@@ -226,44 +194,147 @@ def _region_props(labels: np.ndarray) -> dict[int, tuple[int, float, float]]:
     return out
 
 
-def segment_track_propagated(images: list[np.ndarray], cfg: PipelineConfig) -> tuple[list[SegmentationResult], TrackingResult]:
-    """Temporal marker-propagation segmentation + tracking of one session.
+def _tight_flood_mask(layers: FrameLayers, dilate_px: int) -> np.ndarray:
+    """Foam mask tightened to a hull of the detected interiors (bleed fix).
+
+    ``compute_foam_mask`` is deliberately generous (measured <= 11.2 px past the
+    outermost interior); watershed assigns EVERY masked pixel to a label, so that rim
+    became label territory on background. Flooding on ``foam & fill_holes(dilate(
+    interior, r))`` keeps the films (which are not "interior") while dropping the
+    background rim. bool (H, W).
+    """
+    hull = ndi.binary_fill_holes(ndi.binary_dilation(layers.interior, iterations=dilate_px))
+    return layers.foam & hull
+
+
+def _blob_prev_overlaps(blobs: np.ndarray, n_blobs: int, Lw: np.ndarray) -> dict[int, dict[int, int]]:
+    """``{blob_label: {previous_stable_id: overlap_px}}`` in one vectorized pass."""
+    maxid = int(Lw.max())
+    if n_blobs == 0 or maxid == 0:
+        return {}
+    m = (blobs > 0) & (Lw > 0)
+    if not m.any():
+        return {}
+    key = (blobs[m].astype(np.int64) - 1) * (maxid + 1) + Lw[m].astype(np.int64)
+    cnt = np.bincount(key, minlength=n_blobs * (maxid + 1))
+    out: dict[int, dict[int, int]] = {}
+    for k in np.nonzero(cnt)[0]:
+        b, i = divmod(int(k), maxid + 1)
+        out.setdefault(b + 1, {})[i] = int(cnt[k])
+    return out
+
+
+def _pair_ridge(blobs: np.ndarray, film: np.ndarray, slices, b1: int, b2: int,
+                dilate: int = 3) -> float:
+    """Mean film ridge on the interface between two interior blobs (NaN if disjoint).
+
+    Cropped to the union bounding box. Used for the split hysteresis: a blob boundary
+    only guarantees film >= interior_thresh, so a *confident* split needs a stronger
+    ridge than that (see PropagateConfig.split_film_thresh).
+    """
+    s1, s2 = slices[b1 - 1], slices[b2 - 1]
+    if s1 is None or s2 is None:
+        return float("nan")
+    y0 = max(min(s1[0].start, s2[0].start) - dilate - 1, 0)
+    y1 = min(max(s1[0].stop, s2[0].stop) + dilate + 1, blobs.shape[0])
+    x0 = max(min(s1[1].start, s2[1].start) - dilate - 1, 0)
+    x1 = min(max(s1[1].stop, s2[1].stop) + dilate + 1, blobs.shape[1])
+    sub = blobs[y0:y1, x0:x1]
+    m1 = ndi.binary_dilation(sub == b1, iterations=dilate)
+    m2 = ndi.binary_dilation(sub == b2, iterations=dilate)
+    inter = m1 & m2
+    if not inter.any():
+        return float("nan")
+    return float(film[y0:y1, x0:x1][inter].mean())
+
+
+def segment_track_propagated(
+    images: list[np.ndarray],
+    cfg: PipelineConfig,
+) -> tuple[list[SegmentationResult], TrackingResult]:
+    """Identity-propagating segmentation of one contiguous run (ratchet-free).
+
+    Algorithm (see the module docstring and docs/propagation_ratchet_defect.md)
+    ---------------------------------------------------------------------------
+    Per frame: decompose the current frame's ``interior`` into blobs, give **every blob
+    exactly one marker** (the invariant that makes the ratchet structurally impossible),
+    and assign that marker an *identity* by pixel overlap with the drift-warped previous
+    stable map. Geometry is therefore re-derived from the current frame every frame;
+    only identity is inherited. Splits are ungated in geometry and gated in identity
+    (resurrect a dormant id -> else probation -> else mint a new id).
 
     Parameters
     ----------
-    images : ordered uint8 (H, W) frames of ONE contiguous tracking run.
+    images : ordered uint8 ``(H, W)`` frames of ONE contiguous tracking run.
 
     Returns
     -------
-    (results, tracking) : per-frame ``SegmentationResult`` (labels in stable-ID
-        space) and a ``TrackingResult`` with ``id_maps`` (stable), ``correspondence``,
-        ``events`` (birth/merge/T2), ``frame_offsets``, and ``diagnostics``
-        (``frame0_max_id``, ``n_births_remaining``, ``n_merge_events`` …).
+    (results, tracking)
+        ``results`` : per-frame :class:`SegmentationResult` with labels in stable-ID
+        space. ``tracking`` : :class:`TrackingResult` with ``id_maps``,
+        ``correspondence`` (rebuilt from the FINAL maps, after retroactive retirement
+        of probation ids), ``events`` (birth / merge / T2_disappear), ``frame_offsets``
+        and ``diagnostics`` — including ``blob_ratio_min`` and the per-frame
+        ``n_regions``/``n_blobs`` series behind the collapse guard.
+
+    Raises
+    ------
+    RuntimeError
+        If the collapse guard trips (region count falls below
+        ``collapse_guard_ratio`` x the independent interior-blob count for
+        ``collapse_guard_patience`` consecutive frames) and ``collapse_guard="raise"``.
     """
     import pandas as pd
 
     if not images:
         raise ValueError("no images")
     seg, pcfg = cfg.seg, cfg.propagate
+    if not (0.0 <= pcfg.collapse_guard_ratio <= 1.0):
+        raise ValueError(f"collapse_guard_ratio must be in [0,1], got {pcfg.collapse_guard_ratio}")
+    if pcfg.split_film_thresh <= seg.interior_thresh:
+        raise ValueError(
+            f"split_film_thresh ({pcfg.split_film_thresh}) must exceed "
+            f"interior_thresh ({seg.interior_thresh}) or splits/merges oscillate")
 
+    # ── frame 0: the independent segmentation defines the initial identities ──
     layers0 = compute_frame_layers(images[0], cfg)
-    raw0 = watershed(layers0.film, _seed_frame0(layers0, cfg), mask=layers0.foam)
-    L = _area_filter_relabel(raw0, seg.min_bubble_area_px)
+    flood0 = _tight_flood_mask(layers0, pcfg.tight_mask_dilate_px)
+    # DECISION: `interior` must be intersected with the TIGHT mask, not just the
+    # flooding. `interior` = (film < thresh) & foam, and the generous foam mask's flat
+    # background rim is film-free -> it would register as an interior blob and be
+    # seeded as a bubble on every frame. Masking here fixes the bleed at its source.
+    interior0 = layers0.interior & flood0
+    # DECISION: frame 0 obeys the SAME one-marker-per-blob invariant as every other
+    # frame. Seeding it differently (h_maxima + unseeded blobs) left frame 0
+    # under-segmented relative to its own blobs, and the invariant then correctly but
+    # noisily split that apart over the next frames — a transient storm of "births"
+    # that is an artifact of the inconsistent frame-0 rule, not real topology.
+    markers0, _ = _unseeded_blob_seeds(interior0, layers0.dt, np.zeros(interior0.shape, np.int32),
+                                       1, seg.min_bubble_area_px)
+    L = _area_filter_relabel(watershed(layers0.film, markers0, mask=flood0),
+                             seg.min_bubble_area_px)
     frame0_max = int(L.max())
     id_next = frame0_max + 1
 
-    id_maps = [L]
+    id_maps: list[np.ndarray] = [L]
     results = [SegmentationResult(L, layers0.foam, layers0.dist_to_edge, int(L.max()),
-                                  meta={"backend": "propagate"})]
+                                  meta={"backend": "propagate_v2"})]
     events: list[TopologicalEvent] = []
-    corr_rows: list[dict] = []
-    for lab, (area, cx, cy) in _region_props(L).items():
-        corr_rows.append({"frame": 0, "bubble_id": lab, "label_in_frame": lab,
-                          "area_px": area, "cx": cx, "cy": cy})
-    frame_offsets = [(0.0, 0.0)]
+    frame_offsets: list[tuple[float, float]] = [(0.0, 0.0)]
     cum_x = cum_y = 0.0
-    diag = {"n_births_remaining": 0, "n_merge_events": 0, "n_T2": 0}
+
+    dormant: dict[int, dict] = {}          # id -> {frame, sl, mask, parent}
+    provisional: dict[int, dict] = {}      # id -> {parent, since, frames[]}
+    pending_merge: dict[int, dict] = {}    # loser id -> {survivor, frame}
+    pending_death: dict[int, int] = {}     # vanished id -> frame it vanished
+    diag = {"n_births_remaining": 0, "n_merge_events": 0, "n_T2": 0,
+            "n_splits": 0, "n_resurrections": 0, "n_probation_retired": 0}
+    n_regions_series: list[int] = [int(L.max())]
+    _b0a = np.bincount(ndi.label(interior0)[0].ravel())
+    n_blobs_series: list[int] = [int((_b0a[1:] >= seg.min_bubble_area_px).sum())]
+    sep_durations: list[int] = []          # split->remerge, for measuring W
     prev_layers = layers0
+    below = 0
 
     for t in range(1, len(images)):
         layers = compute_frame_layers(images[t], cfg)
@@ -272,106 +343,245 @@ def segment_track_propagated(images: list[np.ndarray], cfg: PipelineConfig) -> t
         cum_y += dy
         frame_offsets.append((cum_x, cum_y))
         Lw = ndi.shift(L, shift=(dy, dx), order=0, mode="constant", cval=0).astype(np.int32)
+        flood = _tight_flood_mask(layers, pcfg.tight_mask_dilate_px)
 
-        # Size the count arrays to cover EVERY previous id, not just those still in
-        # the warped map: a bubble whose warped footprint drifted off-frame has
-        # Lw.max() < L.max(), so indexing er_area[prev_id] would be out of bounds.
-        # Padding with zeros makes such a bubble read as area 0 -> genuine
-        # disappearance (T2), which is exactly correct.
-        maxid = int(max(int(Lw.max()), int(L.max())))
-        raw_seed = np.where(layers.interior, Lw, 0).astype(np.int32)
-        bnd_zone = ndi.binary_dilation(find_boundaries(Lw, mode="outer"),
-                                       iterations=pcfg.erode_seed_px)
-        eroded = np.where(~bnd_zone, raw_seed, 0).astype(np.int32)
-        er_area = _counts(eroded, maxid)
-        raw_area = _counts(raw_seed, maxid)
+        interior = layers.interior & flood        # tight-masked (see frame-0 note)
+        blobs, n_blobs = ndi.label(interior)
+        blob_slices = ndi.find_objects(blobs)
+        blob_area = np.bincount(blobs.ravel(), minlength=n_blobs + 1)
+        # blobs too small to be a bubble are never seeded; the collapse guard compares
+        # against these ELIGIBLE blobs so the ratio means "bubbles we should have".
+        n_blobs_eligible = int((blob_area[1:] >= seg.min_bubble_area_px).sum())
+        overlaps = _blob_prev_overlaps(blobs, n_blobs, Lw)
+        prev_area = _counts(L, int(L.max()))
 
-        markers = eroded.copy()
-        prev_ids = [int(i) for i in np.unique(L) if i > 0]
-        seeded: set[int] = set()
-        for i in prev_ids:
-            if er_area[i] >= pcfg.min_seed_area_px:
-                seeded.add(i)
-            elif raw_area[i] >= pcfg.min_seed_area_px:      # small bubble: skip erosion
-                markers[raw_seed == i] = i
-                seeded.add(i)
-            # else: seed collapsed -> genuine disappearance (handled below)
+        # eroded cores of the warped previous labels (used as markers where big enough)
+        bnd = ndi.binary_dilation(find_boundaries(Lw, mode="outer"), iterations=pcfg.erode_seed_px)
+        eroded = np.where(~bnd, np.where(interior, Lw, 0), 0).astype(np.int32)
 
-        extra, id_next2 = _unseeded_blob_seeds(layers.interior, layers.dt, markers,
-                                               id_next, pcfg.new_seed_min_area_px)
-        markers = np.where(extra > 0, extra, markers)
-
-        Lt = watershed(layers.film, markers, mask=layers.foam).astype(np.int32)
-
-        # ── merge post-process: dissolve filmless borders between PRE-EXISTING ids ──
-        pair_film = _pair_border_film(Lt, layers.film)
-        uf = _UF()
-        for (lo, hi), (mean_film, n) in pair_film.items():
-            if lo in seeded and hi in seeded and n >= pcfg.merge_min_border_px \
-                    and mean_film < pcfg.merge_film_thresh:
-                uf.union(lo, hi)
-        # apply unions: survivor = largest-area member (keep_larger; tie -> max id)
-        groups: dict[int, list[int]] = {}
-        for i in seeded:
-            groups.setdefault(uf.find(i), []).append(i)
-        area_now = _counts(Lt, int(Lt.max()))
-        remap = np.arange(int(Lt.max()) + 1, dtype=np.int32)
-        merged_this_frame: set[int] = set()
-        for members in groups.values():
-            if len(members) < 2:
+        # ── 1. candidate claims per blob ────────────────────────────────────────
+        claims: dict[int, list[tuple[int, int]]] = {}      # prev id -> [(blob, px)]
+        blob_assign: dict[int, int] = {}                    # blob -> assigned id
+        unclaimed: list[int] = []
+        merge_losers: dict[int, int] = {}                   # loser -> survivor
+        for b in range(1, n_blobs + 1):
+            if blob_area[b] < seg.min_bubble_area_px:
                 continue
-            survivor = max(members, key=lambda i: (area_now[i] if i < len(area_now) else 0, i))
-            for i in members:
-                if i != survivor:
-                    remap[i] = survivor
-                    merged_this_frame.add(i)
-            cxym = _region_props((Lt == survivor).astype(np.int32)).get(1, (0, 0.0, 0.0))
-            events.append(TopologicalEvent(
-                frame=t, kind="merge", bubble_ids=tuple(sorted(members)),
-                meta={"survivor": survivor, "merged_ids": [i for i in members if i != survivor],
-                      "last_seen_frame": t - 1, "cx": cxym[1], "cy": cxym[2]}))
-            diag["n_merge_events"] += 1
-        if merged_this_frame:
-            Lt = remap[Lt]
+            ov = overlaps.get(b, {})
+            cands = [(i, px) for i, px in ov.items() if px >= pcfg.claim_min_px]
+            if not cands:
+                unclaimed.append(b)
+                continue
+            if len(cands) >= 2:
+                # MERGE: >=2 previously distinct ids now share one filmless region.
+                # keep_larger by PREVIOUS area (physical continuity of the big bubble).
+                survivor = max(cands, key=lambda c: (int(prev_area[c[0]]) if c[0] < len(prev_area) else 0, c[0]))[0]
+                for i, _px in cands:
+                    if i != survivor:
+                        merge_losers[i] = survivor
+                blob_assign[b] = survivor
+                claims.setdefault(survivor, []).append((b, dict(cands)[survivor]))
+            else:
+                i, px = cands[0]
+                blob_assign[b] = i
+                claims.setdefault(i, []).append((b, px))
 
-        # ── drop tiny NEW basins (below new_seed_min_area) -> background ──
+        # ── 2. SPLIT: one id claiming several blobs keeps only its best blob ─────
+        split_offs: list[tuple[int, int, int]] = []         # (blob, parent id, kept blob)
+        for i, blist in claims.items():
+            if len(blist) < 2:
+                continue
+            blist.sort(key=lambda bp: -bp[1])
+            keep_blob = blist[0][0]
+            for b, _px in blist[1:]:
+                blob_assign.pop(b, None)
+                split_offs.append((b, i, keep_blob))
+                diag["n_splits"] += 1
+
+        # ── 3. identity for split-offs and unclaimed blobs ──────────────────────
+        #      resurrect (zero churn) -> probation (faint ridge) -> new id
+        def _resurrect(b: int) -> int | None:
+            best, best_ov = None, 0.0
+            for did, d in dormant.items():
+                sub = blobs[d["sl"]] == b
+                if not sub.any():
+                    continue
+                ov = float((sub & d["mask"]).sum())
+                frac = ov / max(float(blob_area[b]), 1.0)
+                if frac >= pcfg.resurrect_min_overlap_frac and ov > best_ov:
+                    best, best_ov = did, ov
+            return best
+
+        for b, parent, keep_b in split_offs:
+            rid = _resurrect(b)
+            if rid is not None:
+                blob_assign[b] = rid
+                dormant.pop(rid, None)
+                pending_merge.pop(rid, None)          # merge was flicker -> cancel it
+                pending_death.pop(rid, None)          # ...as was the disappearance
+                diag["n_resurrections"] += 1
+                continue
+            ridge = _pair_ridge(blobs, layers.film, blob_slices, b, keep_b)
+            blob_assign[b] = id_next
+            if np.isfinite(ridge) and ridge >= pcfg.split_film_thresh:
+                events.append(TopologicalEvent(frame=t, kind="birth", bubble_ids=(id_next,),
+                                               meta={"cause": "split_confirmed_strong_ridge",
+                                                     "parent": parent, "ridge": float(ridge)}))
+                diag["n_births_remaining"] += 1
+            else:
+                # faint separation -> serve probation; the id is NOT counted as a
+                # reorganization birth unless the separation survives W frames.
+                provisional[id_next] = {"parent": parent, "since": t, "frames": []}
+            id_next += 1
+
+        for b in unclaimed:
+            rid = _resurrect(b)
+            if rid is not None:
+                blob_assign[b] = rid
+                dormant.pop(rid, None)
+                pending_merge.pop(rid, None)
+                pending_death.pop(rid, None)
+                diag["n_resurrections"] += 1
+            else:
+                blob_assign[b] = id_next
+                events.append(TopologicalEvent(frame=t, kind="birth", bubble_ids=(id_next,),
+                                               meta={"cause": "new_interior_blob"}))
+                diag["n_births_remaining"] += 1
+                id_next += 1
+
+        # ── 4. ONE MARKER PER BLOB (the invariant) ──────────────────────────────
+        markers = np.zeros(blobs.shape, np.int32)
+        for b, i in blob_assign.items():
+            sl = blob_slices[b - 1]
+            if sl is None:
+                continue
+            bm = blobs[sl] == b
+            core = bm & (eroded[sl] == i)
+            if int(core.sum()) >= pcfg.min_seed_area_px:
+                markers[sl][core] = i
+            else:
+                sub = layers.dt[sl] * bm
+                iy, ix = np.unravel_index(int(np.argmax(sub)), sub.shape)
+                markers[sl[0].start + iy, sl[1].start + ix] = i
+        if not markers.any():
+            raise RuntimeError(f"frame {t}: no markers placed (interior empty?)")
+
+        Lt = watershed(layers.film, markers, mask=flood).astype(np.int32)
+
+        # ── 5. drop sub-minimum NEW/provisional regions ─────────────────────────
         present = {int(i) for i in np.unique(Lt) if i > 0}
-        new_ids = {i for i in present if i >= id_next}          # minted this frame
-        area_final = _counts(Lt, int(Lt.max()))
-        for i in list(new_ids):
-            if area_final[i] < pcfg.new_seed_min_area_px:
+        area_now = _counts(Lt, int(Lt.max()))
+        for i in list(present):
+            if i > frame0_max and area_now[i] < pcfg.new_seed_min_area_px:
                 Lt[Lt == i] = 0
                 present.discard(i)
-                new_ids.discard(i)
+                provisional.pop(i, None)
 
-        # ── events: births + disappearances ──
-        props = _region_props(Lt)
-        for i in sorted(new_ids):
-            if i in props:
-                events.append(TopologicalEvent(frame=t, kind="birth", bubble_ids=(i,),
-                                               meta={"cx": props[i][1], "cy": props[i][2],
-                                                     "cause": "adaptive_new_seed"}))
-                diag["n_births_remaining"] += 1
+        # ── 6. bookkeeping: merges, dormancy, probation, deaths ─────────────────
+        for loser, survivor in merge_losers.items():
+            sl = ndi.find_objects((Lw == loser).astype(np.int32))
+            if sl and sl[0] is not None:
+                dormant[loser] = {"frame": t, "sl": sl[0],
+                                  "mask": (Lw[sl[0]] == loser), "parent": survivor}
+            pending_merge.setdefault(loser, {"survivor": survivor, "frame": t})
+
+        for loser, pm in list(pending_merge.items()):
+            if t - pm["frame"] >= pcfg.probation_frames:
+                events.append(TopologicalEvent(
+                    frame=pm["frame"], kind="merge", bubble_ids=(loser, pm["survivor"]),
+                    meta={"survivor": pm["survivor"], "merged_ids": [loser],
+                          "last_seen_frame": pm["frame"] - 1}))
+                diag["n_merge_events"] += 1
+                pending_merge.pop(loser)
+
+        for did in [d for d, v in dormant.items() if t - v["frame"] > pcfg.resurrect_window]:
+            dormant.pop(did)
+
+        for pid, info in list(provisional.items()):
+            if pid in present:
+                info["frames"].append(t)
+                if t - info["since"] + 1 >= max(pcfg.probation_frames, 1):
+                    events.append(TopologicalEvent(
+                        frame=info["since"], kind="birth", bubble_ids=(pid,),
+                        meta={"cause": "split_confirmed_probation", "parent": info["parent"]}))
+                    diag["n_births_remaining"] += 1
+                    provisional.pop(pid)
+            else:
+                # separation did not survive probation -> flicker. Retire the id and
+                # give its pixels back to the parent RETROACTIVELY, so it never counts
+                # as a reorganization birth.
+                sep_durations.append(len(info["frames"]))
+                for f in info["frames"]:
+                    id_maps[f][id_maps[f] == pid] = info["parent"]
+                diag["n_probation_retired"] += 1
+                provisional.pop(pid)
+
+        # DECISION: a bubble that vanishes goes DORMANT rather than dying immediately —
+        # detection flicker (one frame where its interior fails to resolve) must not be
+        # a death, or the bubble has to re-mint a new id when it reappears, which is
+        # churn of exactly the kind this design exists to avoid. The death is committed
+        # only after `resurrect_window` frames with no reclaim.
+        prev_ids = [int(i) for i in np.unique(L) if i > 0]
         for i in prev_ids:
-            if i not in present and i not in merged_this_frame:
-                events.append(TopologicalEvent(frame=t, kind="T2_disappear", bubble_ids=(i,),
-                                               meta={"last_seen_frame": t - 1}))
+            if i not in present and i not in merge_losers and i not in dormant:
+                sl = ndi.find_objects((Lw == i).astype(np.int32))
+                if sl and sl[0] is not None:
+                    dormant[i] = {"frame": t, "sl": sl[0], "mask": (Lw[sl[0]] == i), "parent": None}
+                    pending_death[i] = t
+                else:                                    # no footprint left at all
+                    events.append(TopologicalEvent(frame=t, kind="T2_disappear",
+                                                   bubble_ids=(i,),
+                                                   meta={"last_seen_frame": t - 1}))
+                    diag["n_T2"] += 1
+        for i, t_gone in list(pending_death.items()):
+            if i in present:                              # reclaimed -> never died
+                pending_death.pop(i)
+            elif t - t_gone >= pcfg.resurrect_window:
+                events.append(TopologicalEvent(frame=t_gone, kind="T2_disappear",
+                                               bubble_ids=(i,),
+                                               meta={"last_seen_frame": t_gone - 1}))
                 diag["n_T2"] += 1
+                pending_death.pop(i)
 
-        id_next = id_next2
-        for lab, (area, cx, cy) in props.items():
-            corr_rows.append({"frame": t, "bubble_id": lab, "label_in_frame": lab,
-                              "area_px": area, "cx": cx, "cy": cy})
+        # ── 7. REGRESSION GUARD: region count vs the independent blob count ─────
+        n_reg = int(len(present))
+        n_regions_series.append(n_reg)
+        n_blobs_series.append(n_blobs_eligible)
+        ratio = n_reg / n_blobs_eligible if n_blobs_eligible else 1.0
+        below = below + 1 if ratio < pcfg.collapse_guard_ratio else 0
+        if below >= pcfg.collapse_guard_patience and pcfg.collapse_guard != "off":
+            msg = (f"COLLAPSE GUARD: at frame {t} the propagated region count "
+                   f"({n_reg}) has been below {pcfg.collapse_guard_ratio:.0%} of the "
+                   f"independent interior-blob count ({n_blobs_eligible}) for "
+                   f"{below} consecutive frames (ratio {ratio:.2f}). This is the "
+                   f"ratchet signature (markers swallowing multiple bubbles). See "
+                   f"docs/propagation_ratchet_defect.md.")
+            if pcfg.collapse_guard == "raise":
+                raise RuntimeError(msg)
+            import warnings
+            warnings.warn(msg, RuntimeWarning, stacklevel=2)
+
         id_maps.append(Lt)
-        results.append(SegmentationResult(Lt, layers.foam, layers.dist_to_edge, len(props),
-                                          meta={"backend": "propagate"}))
+        results.append(SegmentationResult(Lt, layers.foam, layers.dist_to_edge, n_reg,
+                                          meta={"backend": "propagate_v2"}))
         L = Lt
         prev_layers = layers
 
+    # ── correspondence is rebuilt from the FINAL maps (after retroactive retires) ──
+    corr_rows: list[dict] = []
+    for f, m in enumerate(id_maps):
+        for lab, (area, cx, cy) in _region_props(m).items():
+            corr_rows.append({"frame": f, "bubble_id": lab, "label_in_frame": lab,
+                              "area_px": area, "cx": cx, "cy": cy})
+
+    ratios = [r / b if b else 1.0 for r, b in zip(n_regions_series, n_blobs_series)]
     max_id = max((int(m.max()) for m in id_maps), default=0)
-    diag.update(frame0_max_id=frame0_max, max_bubble_id=max_id,
-                invariant_B_holds=bool(max_id <= frame0_max),
-                n_frames=len(images))
+    diag.update(frame0_max_id=frame0_max, max_bubble_id=max_id, n_frames=len(images),
+                n_regions_series=n_regions_series, n_blobs_series=n_blobs_series,
+                blob_ratio_min=float(min(ratios)) if ratios else float("nan"),
+                blob_ratio_last=float(ratios[-1]) if ratios else float("nan"),
+                separation_durations=sep_durations,
+                n_provisional_open=len(provisional))
     tracking = TrackingResult(
         id_maps=id_maps, events=events, correspondence=pd.DataFrame(corr_rows),
         n_tracks=max_id, frame_offsets=frame_offsets, diagnostics=diag)

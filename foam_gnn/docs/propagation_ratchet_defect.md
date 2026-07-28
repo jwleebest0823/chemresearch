@@ -161,11 +161,22 @@ that failure. The asymmetry:
      single-threshold design would be vulnerable to the moment splitting is enabled.
   4. **Size floor** — both parts ≥ `new_seed_min_area_px` (knob already exists).
 
-**Setting `W` from data, not assumption.** I propose *measuring* the duration distribution of
-candidate internal separations on Foam A — exactly the method already used to set
-`merge_resurrect_window = 2` (measured: 44 % of merge-flickers last 1 frame, 69 % ≤2). If most
-candidate splits last 1 frame they are flicker; if they persist they are real. **Default W = 2
-by that precedent, then confirm or revise from the measurement.**
+**Setting `W` from data, not assumption — MEASURED (result).**
+`dev/measure_probation_w.py` runs the v2 segmenter on Foam A (exp1, 99 frames) with probation
+set impossibly high, so nothing commits and every candidate separation runs until it either
+collapses back (spurious) or survives to the end (real):
+
+* **526 candidate separations** → **430 collapsed back**, **96 persisted (18 %, real)**.
+* Spurious durations are **bimodal**: a flicker spike at 1–2 frames (**33 % last exactly 1
+  frame, 43.7 % ≤ 2**) plus a long tail (median 5, p90 38, max 92 frames).
+* Rejection vs W: **W=1 → 33 %, W=2 → 43.7 %**, W=3 → 47 %, W=5 → 50 %, W=8 → 55 %.
+
+**W = 2** (measured). It captures the flicker spike, and returns collapse hard beyond it —
+W=8 buys only 11 more points while deferring *every real split* by 8 frames. The long tail is
+not flicker and probation should not try to reject it: those are transient-but-real bubbles
+that merge away later, and they are handled by the merge/resurrection machinery instead.
+Reassuringly this lands on the same value, by the same method, as
+`TrackConfig.merge_resurrect_window = 2` (44 % of merge-flickers last 1 frame, 69 % ≤ 2).
 
 ### 4.3 Rejected / deferred alternatives
 - **Reconcile against a second, independent per-frame segmentation.** Sound, and it is the
@@ -214,4 +225,33 @@ belongs inside `segment_track_propagated` (raising/warning) and as a reported di
 - Ground-truth preseeds will be regenerated **after** the fix (`eval/exp1/f000`, `f001` already
   hand-corrected — those masks will **not** be touched).
 
-**STOPPING HERE for review of §4 before implementing.**
+---
+
+## 7. OUTCOME (implemented and measured — §4 was approved)
+The fix is implemented in `foam_gnn.propagate` (v2). **The ratchet is gone**: the region /
+independent-blob ratio now holds at **0.86–0.98** on every session (guard floor 0.60), and
+counts track physical reality (exp3 now *rises* 1189 → 1433, matching the independent
+1189 → 1448, instead of falsely collapsing).
+
+Three findings worth recording, two of them surfaced only by testing:
+
+1. **Frame 0 had to obey the invariant too.** Seeding frame 0 differently (h_maxima +
+   unseeded blobs) left it under-segmented relative to its own blobs, and the invariant
+   then correctly but noisily split that apart over the following frames — a transient
+   storm of "births" that was an artifact of the inconsistent frame-0 rule.
+2. **`interior` had to be tightened, not just the flood mask.** `interior = (film < θ) &
+   foam` and the generous foam mask's flat background rim is film-free, so it registered as
+   an interior blob and was seeded as a fresh "bubble" every frame. Masking at blob
+   decomposition fixes the bleed at its source.
+3. **Disappearance had to become reversible.** Originally only merge-losers went dormant, so
+   a bubble that momentarily failed to resolve died permanently and had to mint a new id on
+   return — churn of exactly the kind this design exists to avoid. Vanished ids now go
+   dormant and their death is committed only after `resurrect_window`.
+
+**And the pre-commitment fired: corrected propagation does NOT beat independent per-frame
+segmentation at matched bubble counts.** On Foam A it loses (trackable area 0.650 vs
+**0.795**; small×near-edge 0.481 vs **0.666**); on Foam C it ties on coverage (0.104 vs
+0.110) and wins only on churn (birth rate 0.058 vs 0.226). **The identity layer was not the
+binding constraint — detection is.** Full corrected tables and the interpretation are in
+`docs/segmentation_propagation.md`; the next move is candidate #2 (a learned per-frame
+detector), not more tracking machinery.

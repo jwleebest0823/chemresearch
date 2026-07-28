@@ -338,6 +338,61 @@ class PropagateConfig:
     drift_upsample: int = 10
     drift_max_px: float = 40.0
 
+    # ── RATCHET FIX (see docs/propagation_ratchet_defect.md) ──────────────────
+    # The v1 segmenter inherited GEOMETRY from the previous frame, so one marker could
+    # come to own many bubbles and nothing could ever split it back apart -> monotone
+    # count collapse. The fix enforces an invariant and decouples geometry from identity.
+    #
+    # DECISION (INVARIANT): every interior blob receives EXACTLY ONE marker. Geometry is
+    # therefore re-derived from the current frame every frame (a marker cannot span two
+    # blobs, so it cannot swallow bubbles); only IDENTITY is propagated.
+    #
+    # DECISION: geometry splits are UNGATED (two blobs separated by film in this frame
+    # ARE two regions; forcing them together is never more faithful). Only the decision
+    # "does the split-off region get its own bubble id?" is gated, because only that can
+    # manufacture churn. Gating order: resurrect a dormant id (costs ZERO churn) ->
+    # else probation -> else mint a new id.
+    #
+    # DECISION (hysteresis): a blob boundary means film >= SegConfig.interior_thresh
+    # (0.12) -- the SAME value used to accept a merge. With one threshold a borderline
+    # film would merge and split alternately forever, so a split is COMMITTED
+    # immediately only when the separating ridge is clearly stronger than that
+    # (>= split_film_thresh); a fainter separation must serve probation instead.
+    split_film_thresh: float = 0.20
+    # DECISION: probation length W (frames a faint separation / a merge must persist
+    # before it is committed as an identity change). MEASURED, not assumed
+    # (dev/measure_probation_w.py, Foam A exp1, 99 frames, probation disabled so
+    # nothing commits): 526 candidate separations -> 430 collapsed back (spurious),
+    # 96 persisted (real, 18%). Durations of the spurious ones are BIMODAL: a flicker
+    # spike at 1-2 frames (33% last exactly 1, 43.7% <= 2) plus a long tail
+    # (median 5, p90 38, max 92) of transient-but-real bubbles that merge away later.
+    # W=2 captures the flicker spike; the tail cannot be rejected by probation without
+    # deferring real splits for tens of frames, and returns collapse beyond it
+    # (W=3 -> 47%, W=5 -> 50%, W=8 -> 55%). The tail is handled instead by the
+    # merge/resurrection machinery. W=2 also matches TrackConfig.merge_resurrect_window,
+    # which was measured the same way (44% of merge-flickers last 1 frame, 69% <= 2).
+    probation_frames: int = 2
+    # DECISION: a merged-away id stays reclaimable for this many frames; on re-separation
+    # it RECLAIMS its old id instead of minting a new one, which is what keeps the split
+    # mechanism from reintroducing reorganization-birth churn.
+    resurrect_window: int = 8
+    resurrect_min_overlap_frac: float = 0.30       # of the candidate blob's area
+    claim_min_px: int = 5                          # min overlap for a prev id to claim a blob
+    # DECISION (bleed fix): compute_foam_mask is deliberately generous (documented: it
+    # sits just outside the outermost films; measured <= 11.2 px past the outermost
+    # interior on exp1 f049). Watershed assigns EVERY masked pixel to some label, so that
+    # rim became label territory on background -- inflating edge-bubble area and
+    # distorting distance_to_evap_edge, i.e. corrupting the near-edge stratum. Flood
+    # instead on foam AND a tight hull of the detected interiors.
+    tight_mask_dilate_px: int = 5
+    # DECISION (regression guard): the interior-blob count is an INDEPENDENT per-frame
+    # bubble estimate that is already computed every frame at zero cost. Under the
+    # invariant n_regions ~= n_blobs, so a sustained drop of that ratio is exactly the
+    # ratchet signature and is caught immediately instead of by eye weeks later.
+    collapse_guard: str = "raise"                  # {"raise", "warn", "off"}
+    collapse_guard_ratio: float = 0.60
+    collapse_guard_patience: int = 3               # consecutive frames below the floor
+
 
 # --------------------------------------------------------------------------- #
 # Segmentation evaluation (ground-truth harness + stratification)

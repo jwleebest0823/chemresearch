@@ -1,5 +1,13 @@
 # Foam F (exp10, 10 s): is von Neumann's Gate-2 failure a sampling artifact?
 
+> **⚠ Partial retraction (added after the propagation ratchet defect was found).** The
+> **Task-2 trackability numbers below are RETRACTED** — they were produced by the
+> defective v1 segmenter (see `docs/propagation_ratchet_defect.md`). **The Task-3 von
+> Neumann conclusion stands**: it compared 10 s vs 30 s-subsampled using the *same*
+> method on both arms, so the sampling contrast was internally controlled, and the
+> result was a *null* (K wrong-signed at every horizon), which the ratchet does not
+> manufacture. Re-running the K-fit on corrected tracks is listed as follow-up work.
+
 Foam F was acquired at a **10 s** inter-frame interval (vs 30 s for A/C/D/E) to test
 whether the Gate-2 finding — von Neumann's law `dA/dt = K(n−6)` failing (K wrong-signed
 at short horizons, horizon-dependent, worse than persistence) — is *physical* or an
