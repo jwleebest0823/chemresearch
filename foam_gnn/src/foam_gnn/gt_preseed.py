@@ -56,6 +56,10 @@ __all__ = [
     "SEED_BLANK",
     "SEED_UNKNOWN_LEGACY",
     "MANIFEST_COLUMNS",
+    "STATUS_IN_PROGRESS",
+    "STATUS_FINAL",
+    "STATUS_INSPECTED",
+    "UNUSABLE_STATUSES",
     "frame_tag",
     "raw_frame_path",
     "corrected_path",
@@ -115,7 +119,17 @@ SEED_BLANK = "blank_manual"
 SEED_UNKNOWN_LEGACY = "unknown_legacy_resume"
 
 MANIFEST_COLUMNS = ["set", "exp", "frame_index", "path", "labeler", "date", "notes",
-                    "seed_method", "preseed_source"]
+                    "seed_method", "preseed_source", "status"]
+
+# DECISION: `status` gates whether a labeled frame may be used as ground truth.
+# A frame that was merely OPENED (so its file on disk is still the raw automatic
+# pre-seed, with no human correction) is NOT ground truth: scoring the segmenter
+# against its own output would "validate" it perfectly and silently. Such frames are
+# marked `inspected_not_corrected` and are EXCLUDED by load_gt_manifest by default.
+STATUS_IN_PROGRESS = "in_progress"                  # human correction started, usable but partial
+STATUS_FINAL = "final"                              # correction complete
+STATUS_INSPECTED = "inspected_not_corrected"        # opened only; file == pre-seed; NOT GT
+UNUSABLE_STATUSES = frozenset({STATUS_INSPECTED, "abandoned"})
 
 
 # --------------------------------------------------------------------------- #
@@ -248,14 +262,15 @@ def upsert_manifest_row(
     labeler: str = "",
     date: str = "",
     notes: str = "",
+    status: str = STATUS_IN_PROGRESS,
 ) -> Path:
     """Insert or update one ``manifest.csv`` row for ``(set, exp, frame_index)``.
 
     ``seed_method`` / ``preseed_source`` are PROVENANCE: written on first save and
     then PRESERVED on every later resume-and-save (never silently overwritten), so
     the manifest always records how the label truly originated even after many
-    correction sessions. ``labeler`` / ``date`` / ``notes`` are refreshed each call
-    when non-empty. Returns the manifest path.
+    correction sessions. ``labeler`` / ``date`` / ``notes`` / ``status`` are refreshed
+    each call when non-empty. Returns the manifest path.
     """
     text_cols = [c for c in MANIFEST_COLUMNS if c != "frame_index"]
     man_path = Path(gt_root) / "manifest.csv"
@@ -285,10 +300,13 @@ def upsert_manifest_row(
             df.at[i, "date"] = date
         if notes:
             df.at[i, "notes"] = notes
+        if status:
+            df.at[i, "status"] = status
         df.at[i, "path"] = rel_path
     else:
         df.loc[len(df)] = {"set": dset, "exp": exp, "frame_index": frame_index, "path": rel_path,
                            "labeler": labeler, "date": date, "notes": notes,
-                           "seed_method": seed_method, "preseed_source": preseed_source}
+                           "seed_method": seed_method, "preseed_source": preseed_source,
+                           "status": status}
     df.to_csv(man_path, index=False)
     return man_path

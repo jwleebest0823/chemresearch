@@ -130,11 +130,19 @@ def load_gt_frame(
     return check_array("gt.labels", labels, ndim=2, nonneg=True), info
 
 
-def load_gt_manifest(gt_root: str | Path) -> pd.DataFrame:
+def load_gt_manifest(gt_root: str | Path, *, usable_only: bool = True) -> pd.DataFrame:
     """Load ``<gt_root>/manifest.csv`` (provenance of the labeled frames).
 
-    Expected columns: ``exp, frame_index, path`` (+ optional ``labeler, date,
-    notes``). ``path`` is resolved relative to ``gt_root`` if not absolute.
+    Expected columns: ``exp, frame_index, path`` (+ optional ``labeler, date, notes,
+    seed_method, preseed_source, status``). ``path`` is resolved relative to
+    ``gt_root`` if not absolute.
+
+    ``usable_only`` (default True) DROPS rows whose ``status`` marks them as not
+    ground truth — currently ``inspected_not_corrected`` / ``abandoned``. A frame that
+    was only opened still holds the raw automatic pre-seed, so scoring the segmenter
+    against it would compare the method to its own output and report a perfect score.
+    Excluding them by default makes that mistake impossible; pass ``usable_only=False``
+    to see every row (e.g. for auditing).
     """
     root = Path(gt_root)
     man = root / "manifest.csv"
@@ -142,10 +150,13 @@ def load_gt_manifest(gt_root: str | Path) -> pd.DataFrame:
         raise FileNotFoundError(
             f"GT manifest not found: {man}. Expected columns exp,frame_index,path "
             "(one row per labeled frame).")
-    df = pd.read_csv(man)
+    df = pd.read_csv(man, keep_default_na=False)
     for c in ("exp", "frame_index", "path"):
         if c not in df.columns:
             raise ValueError(f"{man}: missing required column {c!r}")
+    if usable_only and "status" in df.columns:
+        from .gt_preseed import UNUSABLE_STATUSES
+        df = df[~df["status"].astype(str).str.strip().isin(UNUSABLE_STATUSES)].reset_index(drop=True)
     df["path"] = [p if Path(p).is_absolute() else str(root / p) for p in df["path"]]
     return df
 
