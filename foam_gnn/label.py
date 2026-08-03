@@ -25,6 +25,7 @@ from foam_gnn.gt_preseed import (
     SEED_BLANK,
     SEED_PROPAGATED,
     SEED_UNKNOWN_LEGACY,
+    STATUS_IN_PROGRESS,
     STATUS_INSPECTED,
     compute_or_load_preseed,
     corrected_path,
@@ -158,17 +159,35 @@ Close the window when done — it saves automatically to:
 ====================================================================
 """)
 
+# DECISION: snapshot what the annotator STARTED from, so a zero-edit close can be
+# detected. Closing Napari without correcting anything used to auto-save the pre-seed
+# to the ground-truth path, where it later looked like hand-labeled GT — scoring the
+# segmenter against its own output. An untouched frame must never become GT.
+_initial = np.asarray(labels, dtype=np.uint16).copy()
+
 napari.run()
 
 final = viewer.layers["bubbles"].data.astype(np.uint16)
-iio.imwrite(out, final)
 n_final = len(np.unique(final)) - (1 if 0 in np.unique(final) else 0)
-print(f"Saved {out}  ({n_final} bubbles)")
+unchanged = np.array_equal(final, _initial)
+
+if unchanged:
+    # Do NOT write the mask: an unedited pre-seed is not ground truth. Record the visit
+    # so the frame is auditable and so load_gt_manifest keeps excluding it.
+    print(f"\nNO EDITS DETECTED — the labels layer is byte-identical to what it was "
+          f"seeded with.\n  NOT writing {out} (an uncorrected pre-seed must never become "
+          f"ground truth).\n  Recording status='{STATUS_INSPECTED}' so evaluation excludes "
+          f"this frame.")
+    status = STATUS_INSPECTED
+else:
+    iio.imwrite(out, final)
+    print(f"Saved {out}  ({n_final} bubbles)")
+    status = STATUS_IN_PROGRESS
 
 man_path = upsert_manifest_row(
     GT_ROOT, SET, EXP, FRAME_IDX,
     seed_method=seed_method or "", preseed_source=preseed_source,
     labeler=os.environ.get("GT_LABELER", ""), date=os.environ.get("GT_DATE", ""),
-    notes=os.environ.get("GT_NOTES", ""))
+    notes=os.environ.get("GT_NOTES", ""), status=status)
 print(f"Recorded provenance in {man_path} "
       f"(seed_method preserved from first save if this is a resume).")

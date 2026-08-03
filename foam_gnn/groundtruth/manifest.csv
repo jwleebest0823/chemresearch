@@ -1,5 +1,20 @@
 set,exp,frame_index,path,labeler,date,notes,seed_method,preseed_source,status
-eval,exp1,0,eval/exp1/f000.png,Jongwoo Lee,,hand-corrected from the pre-seed; correction in progress,propagated_segmenter_correction,cache,in_progress
-eval,exp1,1,eval/exp1/f001.png,Jongwoo Lee,,hand-corrected from the pre-seed; correction in progress,propagated_segmenter_correction,cache,in_progress
-eval,exp1,49,eval/exp1/f049.png,Jongwoo Lee,,OPENED ONLY during the ratchet-defect inspection then abandoned; file is still the raw (defective) pre-seed with NO human correction - NOT ground truth,propagated_segmenter_correction,cache,inspected_not_corrected
-eval,exp1,97,eval/exp1/f097.png,Jongwoo Lee,,OPENED ONLY during the ratchet-defect inspection then abandoned; file is still the raw (defective) pre-seed with NO human correction - NOT ground truth,propagated_segmenter_correction,cache,inspected_not_corrected
+eval,exp1,0,eval/exp1/f000.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp1,1,eval/exp1/f001.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp1,49,eval/exp1/f049.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp1,50,eval/exp1/f050.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp1,97,eval/exp1/f097.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp1,98,eval/exp1/f098.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp1,148,eval/exp1/f148.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp1,149,eval/exp1/f149.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+train,exp1,24,train/exp1/f024.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+train,exp1,25,train/exp1/f025.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+train,exp1,73,train/exp1/f073.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+train,exp1,74,train/exp1/f074.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+train,exp1,120,train/exp1/f120.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+train,exp1,121,train/exp1/f121.png,Jongwoo Lee,,hand-corrected from the pre-seed,propagated_segmenter_correction,cache,in_progress
+eval,exp3,0,eval/exp3/f000.png,Jongwoo Lee,,opened in Napari and closed without correcting; auto-saved file is the raw pre-seed (byte-identical) - NOT ground truth,propagated_segmenter_correction,cache,inspected_not_corrected
+eval,exp5,49,eval/exp5/f049.png,Jongwoo Lee,,opened in Napari and closed without correcting; differs from the current pre-seed only because pre-seeds were regenerated after it was saved - NOT ground truth,propagated_segmenter_correction,cache,inspected_not_corrected
+train,exp4,0,train/exp4/f000.png,Jongwoo Lee,,opened in Napari and closed without correcting; auto-saved file is the raw pre-seed (byte-identical) - NOT ground truth,propagated_segmenter_correction,cache,inspected_not_corrected
+train,exp6,49,train/exp6/f049.png,Jongwoo Lee,,opened in Napari and closed without correcting; differs from the current pre-seed only because pre-seeds were regenerated after it was saved - NOT ground truth,propagated_segmenter_correction,cache,inspected_not_corrected
+train,exp7,49,train/exp7/f049.png,Jongwoo Lee,,opened in Napari and closed without correcting; differs from the current pre-seed only because pre-seeds were regenerated after it was saved - NOT ground truth,propagated_segmenter_correction,cache,inspected_not_corrected
