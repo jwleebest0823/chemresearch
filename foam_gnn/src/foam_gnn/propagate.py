@@ -393,6 +393,7 @@ def segment_track_propagated(
     sep_durations: list[int] = []          # split->remerge, for measuring W
     prev_layers = layers0
     below = 0
+    ratio0: float | None = None
 
     for t in range(1, len(images)):
         layers = compute_frame_layers(images[t], cfg)
@@ -407,18 +408,14 @@ def segment_track_propagated(
         blobs, n_blobs = ndi.label(interior)
         blob_slices = ndi.find_objects(blobs)
         blob_area = np.bincount(blobs.ravel(), minlength=n_blobs + 1)
-        # Blobs too small to be a bubble are never seeded; the collapse guard compares
-        # against these ELIGIBLE blobs so the ratio means "bubbles we should have".
-        # The eligibility test must apply the SAME gas/liquid rule the region filter
-        # uses -- otherwise Plateau-border blobs inflate the reference and the intended
-        # rejection reads as a ratchet collapse (this guard correctly caught exactly
-        # that when the filter was first added).
-        _elig = blob_area[1:] >= seg.min_bubble_area_px
-        _thr_i = _intensity_threshold(layers, cfg)
-        if _thr_i is not None and n_blobs > 0:
-            _bmean = np.atleast_1d(ndi.mean(layers.raw, blobs, list(range(1, n_blobs + 1))))
-            _elig = _elig & (np.nan_to_num(_bmean, nan=0.0) >= _thr_i)
-        n_blobs_eligible = int(_elig.sum())
+        # Blobs too small to be a bubble are never seeded; the guard's reference is
+        # these ELIGIBLE blobs. NOTE the reference is deliberately NOT intensity-gated:
+        # a spurious Plateau-border region grows from a small BRIGHT speck, so its blob
+        # core looks like a bubble and only the post-watershed region reveals it as
+        # liquid. The guard therefore compares against a reference that includes those,
+        # and uses a RELATIVE criterion (below) so a constant rejection rate is not
+        # mistaken for a collapse.
+        n_blobs_eligible = int((blob_area[1:] >= seg.min_bubble_area_px).sum())
         overlaps = _blob_prev_overlaps(blobs, n_blobs, Lw)
         prev_area = _counts(L, int(L.max()))
 
@@ -615,14 +612,21 @@ def segment_track_propagated(
         n_reg = int(len(present))
         n_regions_series.append(n_reg)
         n_blobs_series.append(n_blobs_eligible)
+        # DECISION: the guard fires on a RELATIVE decline, not an absolute floor. The
+        # ratchet signature is regions progressively LOSING ground against what the
+        # frame affords; a steady fraction (e.g. because Plateau-border regions are
+        # rejected by design) is not a defect. Referencing frame 0's ratio makes the
+        # guard invariant to any constant filtering while still catching the ratchet.
         ratio = n_reg / n_blobs_eligible if n_blobs_eligible else 1.0
-        below = below + 1 if ratio < pcfg.collapse_guard_ratio else 0
+        if ratio0 is None:
+            ratio0 = ratio if ratio > 0 else 1.0
+        below = below + 1 if ratio < pcfg.collapse_guard_ratio * ratio0 else 0
         if below >= pcfg.collapse_guard_patience and pcfg.collapse_guard != "off":
-            msg = (f"COLLAPSE GUARD: at frame {t} the propagated region count "
-                   f"({n_reg}) has been below {pcfg.collapse_guard_ratio:.0%} of the "
-                   f"independent interior-blob count ({n_blobs_eligible}) for "
-                   f"{below} consecutive frames (ratio {ratio:.2f}). This is the "
-                   f"ratchet signature (markers swallowing multiple bubbles). See "
+            msg = (f"COLLAPSE GUARD: at frame {t} the region/eligible-blob ratio "
+                   f"({ratio:.2f}, {n_reg} regions vs {n_blobs_eligible} blobs) has been "
+                   f"below {pcfg.collapse_guard_ratio:.0%} of its frame-0 value "
+                   f"({ratio0:.2f}) for {below} consecutive frames. This is the ratchet "
+                   f"signature (markers progressively swallowing bubbles). See "
                    f"docs/propagation_ratchet_defect.md.")
             if pcfg.collapse_guard == "raise":
                 raise RuntimeError(msg)
