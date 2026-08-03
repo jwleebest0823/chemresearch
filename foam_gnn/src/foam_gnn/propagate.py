@@ -72,9 +72,10 @@ __all__ = ["FrameLayers", "compute_frame_layers", "segment_track_propagated"]
 class FrameLayers:
     """Per-frame intermediate maps shared by seeding + watershed."""
 
-    __slots__ = ("clean", "foam", "dist_to_edge", "film", "interior", "dt")
+    __slots__ = ("clean", "foam", "dist_to_edge", "film", "interior", "dt", "raw")
 
-    def __init__(self, clean, foam, dist_to_edge, film, interior, dt):
+    def __init__(self, clean, foam, dist_to_edge, film, interior, dt, raw=None):
+        self.raw = raw
         self.clean = clean
         self.foam = foam
         self.dist_to_edge = dist_to_edge
@@ -96,7 +97,7 @@ def compute_frame_layers(img: np.ndarray, cfg: PipelineConfig) -> FrameLayers:
     interior = ndi.binary_opening((film < seg.interior_thresh) & foam, structure=np.ones((3, 3)))
     dt = ndi.gaussian_filter(ndi.distance_transform_edt(interior), seg.dt_smooth_sigma)
     return FrameLayers(clean, foam, dist.astype(np.float32), film.astype(np.float32),
-                       interior, dt.astype(np.float32))
+                       interior, dt.astype(np.float32), raw=img)
 
 
 def _counts(labels: np.ndarray, maxid: int) -> np.ndarray:
@@ -248,6 +249,56 @@ def _pair_ridge(blobs: np.ndarray, film: np.ndarray, slices, b1: int, b2: int,
     return float(film[y0:y1, x0:x1][inter].mean())
 
 
+def _intensity_threshold(layers: FrameLayers, cfg: PipelineConfig) -> float | None:
+    """Per-frame gas/liquid split: ``intensity_gate_frac`` x Otsu(raw within foam).
+
+    Returns None when the gate is disabled or cannot be computed (fail-safe: callers
+    then apply no gate rather than silently discarding regions).
+    """
+    frac = cfg.propagate.intensity_gate_frac
+    if frac <= 0.0 or layers.raw is None:
+        return None
+    from skimage.filters import threshold_otsu
+
+    vals = layers.raw[layers.foam]
+    if vals.size < 16 or float(np.ptp(vals)) < 1e-6:
+        return None
+    try:
+        return float(threshold_otsu(vals)) * float(frac)
+    except Exception:
+        return None
+
+
+
+def _reject_plateau_borders(labels: np.ndarray, layers: FrameLayers,
+                            cfg: PipelineConfig) -> np.ndarray:
+    """Drop whole regions that are LIQUID (Plateau borders), keeping GAS (bubbles).
+
+    The Sato ridge filter responds to thin films but not to the fat triangular
+    interstices where three bubbles meet, so those pass ``film < interior_thresh`` and
+    are emitted as bubbles (measured: ~2 spurious regions per real bubble, precision
+    0.347 against hand-labeled ground truth). A bubble interior is gas and BRIGHT; a
+    Plateau border is liquid and DARK, so a per-region mean-intensity gate separates
+    them. Threshold = ``intensity_gate_frac`` x Otsu(raw within foam), per frame.
+
+    Returns the label map with rejected regions set to 0 (NOT relabeled — ids are
+    stable identities and must not be renumbered). Fail-safe: if the raw frame is
+    unavailable, Otsu is degenerate, or the gate is disabled, returns ``labels``
+    unchanged rather than silently discarding data.
+    """
+    thr = _intensity_threshold(layers, cfg)
+    if thr is None or labels.max() == 0:
+        return labels
+    ids = list(range(1, int(labels.max()) + 1))
+    means = ndi.mean(layers.raw, labels, ids)
+    drop = [i for i, m in zip(ids, np.atleast_1d(means)) if np.isfinite(m) and m < thr]
+    if not drop:
+        return labels
+    out = labels.copy()
+    out[np.isin(labels, drop)] = 0
+    return out
+
+
 def segment_track_propagated(
     images: list[np.ndarray],
     cfg: PipelineConfig,
@@ -311,8 +362,9 @@ def segment_track_propagated(
     # that is an artifact of the inconsistent frame-0 rule, not real topology.
     markers0, _ = _unseeded_blob_seeds(interior0, layers0.dt, np.zeros(interior0.shape, np.int32),
                                        1, seg.min_bubble_area_px)
-    L = _area_filter_relabel(watershed(layers0.film, markers0, mask=flood0),
-                             seg.min_bubble_area_px)
+    L = _area_filter_relabel(
+        _reject_plateau_borders(watershed(layers0.film, markers0, mask=flood0), layers0, cfg),
+        seg.min_bubble_area_px)
     frame0_max = int(L.max())
     id_next = frame0_max + 1
 
@@ -330,8 +382,14 @@ def segment_track_propagated(
     diag = {"n_births_remaining": 0, "n_merge_events": 0, "n_T2": 0,
             "n_splits": 0, "n_resurrections": 0, "n_probation_retired": 0}
     n_regions_series: list[int] = [int(L.max())]
-    _b0a = np.bincount(ndi.label(interior0)[0].ravel())
-    n_blobs_series: list[int] = [int((_b0a[1:] >= seg.min_bubble_area_px).sum())]
+    _b0lab, _b0n = ndi.label(interior0)
+    _b0a = np.bincount(_b0lab.ravel())
+    _b0e = _b0a[1:] >= seg.min_bubble_area_px
+    _thr0 = _intensity_threshold(layers0, cfg)
+    if _thr0 is not None and _b0n > 0:
+        _b0m = np.atleast_1d(ndi.mean(layers0.raw, _b0lab, list(range(1, _b0n + 1))))
+        _b0e = _b0e & (np.nan_to_num(_b0m, nan=0.0) >= _thr0)
+    n_blobs_series: list[int] = [int(_b0e.sum())]
     sep_durations: list[int] = []          # split->remerge, for measuring W
     prev_layers = layers0
     below = 0
@@ -349,9 +407,18 @@ def segment_track_propagated(
         blobs, n_blobs = ndi.label(interior)
         blob_slices = ndi.find_objects(blobs)
         blob_area = np.bincount(blobs.ravel(), minlength=n_blobs + 1)
-        # blobs too small to be a bubble are never seeded; the collapse guard compares
+        # Blobs too small to be a bubble are never seeded; the collapse guard compares
         # against these ELIGIBLE blobs so the ratio means "bubbles we should have".
-        n_blobs_eligible = int((blob_area[1:] >= seg.min_bubble_area_px).sum())
+        # The eligibility test must apply the SAME gas/liquid rule the region filter
+        # uses -- otherwise Plateau-border blobs inflate the reference and the intended
+        # rejection reads as a ratchet collapse (this guard correctly caught exactly
+        # that when the filter was first added).
+        _elig = blob_area[1:] >= seg.min_bubble_area_px
+        _thr_i = _intensity_threshold(layers, cfg)
+        if _thr_i is not None and n_blobs > 0:
+            _bmean = np.atleast_1d(ndi.mean(layers.raw, blobs, list(range(1, n_blobs + 1))))
+            _elig = _elig & (np.nan_to_num(_bmean, nan=0.0) >= _thr_i)
+        n_blobs_eligible = int(_elig.sum())
         overlaps = _blob_prev_overlaps(blobs, n_blobs, Lw)
         prev_area = _counts(L, int(L.max()))
 
@@ -466,7 +533,8 @@ def segment_track_propagated(
         if not markers.any():
             raise RuntimeError(f"frame {t}: no markers placed (interior empty?)")
 
-        Lt = watershed(layers.film, markers, mask=flood).astype(np.int32)
+        Lt = _reject_plateau_borders(
+            watershed(layers.film, markers, mask=flood).astype(np.int32), layers, cfg)
 
         # ── 5. drop sub-minimum NEW/provisional regions ─────────────────────────
         present = {int(i) for i in np.unique(Lt) if i > 0}

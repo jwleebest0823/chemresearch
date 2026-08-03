@@ -385,6 +385,25 @@ class PropagateConfig:
     # distorting distance_to_evap_edge, i.e. corrupting the near-edge stratum. Flood
     # instead on foam AND a tight hull of the detected interiors.
     tight_mask_dilate_px: int = 5
+    # DECISION (PLATEAU-BORDER REJECTION -- measured against ground truth): the Sato
+    # ridge filter responds to thin FILMS but not to the fat triangular interstices where
+    # three bubbles meet (Plateau borders). Their interiors therefore pass
+    # `film < interior_thresh` and were emitted as "bubbles" -- ~2 spurious regions per
+    # real bubble. Measured on the 14 hand-labeled Foam A frames: precision 0.347,
+    # F1 0.515, with recall ~1.0 (every real bubble WAS found; the error is purely
+    # spurious extra regions).
+    # Physical discriminator: a bubble interior is GAS (bright, median raw intensity
+    # ~142-149) while a Plateau border is LIQUID (dark, ~93-99). Gating the *interior
+    # mask* fails (it only shrinks blobs, so they still get seeded, and it costs recall);
+    # the fix is to drop whole REGIONS whose mean raw intensity is too low.
+    # Threshold is per-frame adaptive (Otsu within the foam, ~126-128 here) scaled by
+    # `intensity_gate_frac`. Measured sweep over the GT frames (precision/recall/F1):
+    #   off 0.347/0.998/0.515 | 105 0.786/0.903/0.841 | 115 0.899/0.879/0.889
+    #   | 120 0.928/0.864/0.895 | 125 0.942/0.838/0.887
+    # F1 plateaus ~0.89 across 115-125; 0.92*Otsu lands in that plateau and favours
+    # recall slightly, which matters because losing real bubbles is the failure this
+    # project is most sensitive to. Set to 0.0 to disable the gate entirely.
+    intensity_gate_frac: float = 0.92
     # DECISION (regression guard): the interior-blob count is an INDEPENDENT per-frame
     # bubble estimate that is already computed every frame at zero cost. Under the
     # invariant n_regions ~= n_blobs, so a sustained drop of that ratio is exactly the
