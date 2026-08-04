@@ -411,6 +411,19 @@ class PropagateConfig:
     collapse_guard: str = "raise"                  # {"raise", "warn", "off"}
     collapse_guard_ratio: float = 0.60
     collapse_guard_patience: int = 3               # consecutive frames below the floor
+    # DECISION (FRAGMENTATION guard): the collapse guard above catches UNDER-segmentation
+    # (the ratchet) and is blind to the opposite failure by construction. Foam C exhibits
+    # exactly that opposite failure: as it drains, large bubbles' interiors break into many
+    # blobs (measured: up to 98 one-per-blob regions inside a single h_maxima bubble), so
+    # the region count RISES 554 -> 1112 -> 1172 through a coarsening sequence while an
+    # independent detector correctly falls 315 -> 223 -> 213.
+    # A coarsening foam cannot gain bubbles ("bubbles never appear"), so a sustained rise
+    # above the running minimum is proof of fragmentation. Ratio 1.5 tolerates
+    # detection noise while catching the ~2x growth actually observed; patience 3 avoids
+    # firing on a single bad frame.
+    fragmentation_guard: str = "raise"             # {"raise", "warn", "off"}
+    fragmentation_guard_ratio: float = 1.50        # count vs the running minimum
+    fragmentation_guard_patience: int = 3
 
 
 # --------------------------------------------------------------------------- #

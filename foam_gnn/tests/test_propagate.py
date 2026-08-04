@@ -179,3 +179,21 @@ def test_labels_stay_inside_the_tight_foam_mask():
         assert r.labels.max() > 0
         # no label may sit on the flat background corners
         assert r.labels[0, 0] == 0 and r.labels[-1, -1] == 0
+
+
+def test_fragmentation_guard_fires_on_a_rising_count():
+    # A coarsening foam cannot GAIN bubbles, so a sustained rise above the running
+    # minimum means interiors are fragmenting. The collapse guard is blind to this by
+    # construction (it only looks for counts falling), so this is a separate check.
+    # Forced here with an impossible ratio so any frame-to-frame growth trips it.
+    frames = [_foam_frame()] * 5
+    strict = _cfg(fragmentation_guard="raise", fragmentation_guard_ratio=1.0,
+                  fragmentation_guard_patience=1, collapse_guard="off")
+    try:
+        segment_track_propagated(frames, strict)
+    except RuntimeError as e:
+        assert "FRAGMENTATION GUARD" in str(e)
+    # ...and "off" must never raise
+    _r, tr = segment_track_propagated(frames, _cfg(fragmentation_guard="off",
+                                                   collapse_guard="off"))
+    assert "n_regions_min" in tr.diagnostics

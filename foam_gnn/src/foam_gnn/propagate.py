@@ -394,6 +394,8 @@ def segment_track_propagated(
     prev_layers = layers0
     below = 0
     ratio0: float | None = None
+    n_min = int(L.max())          # running minimum region count (fragmentation guard)
+    above = 0
 
     for t in range(1, len(images)):
         layers = compute_frame_layers(images[t], cfg)
@@ -633,6 +635,25 @@ def segment_track_propagated(
             import warnings
             warnings.warn(msg, RuntimeWarning, stacklevel=2)
 
+        # ── FRAGMENTATION GUARD: a coarsening foam cannot GAIN bubbles ─────────
+        # (the collapse guard above only sees the opposite failure). A sustained rise
+        # above the running minimum means interiors are breaking into pieces.
+        if n_reg > pcfg.fragmentation_guard_ratio * max(n_min, 1):
+            above += 1
+        else:
+            above = 0
+        n_min = min(n_min, n_reg)
+        if above >= pcfg.fragmentation_guard_patience and pcfg.fragmentation_guard != "off":
+            fmsg = (f"FRAGMENTATION GUARD: at frame {t} the region count ({n_reg}) has "
+                    f"exceeded {pcfg.fragmentation_guard_ratio:.2f}x the running minimum "
+                    f"({n_min}) for {above} consecutive frames. A coarsening foam cannot "
+                    f"gain bubbles, so this means bubble interiors are fragmenting into "
+                    f"multiple regions. See docs/foamc_fragmentation.md.")
+            if pcfg.fragmentation_guard == "raise":
+                raise RuntimeError(fmsg)
+            import warnings
+            warnings.warn(fmsg, RuntimeWarning, stacklevel=2)
+
         id_maps.append(Lt)
         results.append(SegmentationResult(Lt, layers.foam, layers.dist_to_edge, n_reg,
                                           meta={"backend": "propagate_v2"}))
@@ -653,7 +674,8 @@ def segment_track_propagated(
                 blob_ratio_min=float(min(ratios)) if ratios else float("nan"),
                 blob_ratio_last=float(ratios[-1]) if ratios else float("nan"),
                 separation_durations=sep_durations,
-                n_provisional_open=len(provisional))
+                n_provisional_open=len(provisional),
+                n_regions_min=n_min)
     tracking = TrackingResult(
         id_maps=id_maps, events=events, correspondence=pd.DataFrame(corr_rows),
         n_tracks=max_id, frame_offsets=frame_offsets, diagnostics=diag)
