@@ -122,6 +122,18 @@ Ranked by evidence, not preference:
 Option 1 is the cheapest and most targeted, and is my recommendation for the next
 session. None of these is a threshold change.
 
+> **UPDATE — options 1 and 2 were subsequently built, swept, and rejected.** See
+> `docs/segmentation_hybrid_seeding.md`. Option 1 fails because the fragments are
+> *smaller* than the small bubbles a size cap must admit, so no cap separates them;
+> option 2 fails because every Sato scale still rises on Foam C. A stronger variant
+> (suppressing seeds inside shattered basins) satisfies each foam only in *disjoint*
+> parameter ranges, and flips the sign of the Foam C trend on a one-unit parameter step.
+> That work also **corrects the emphasis of §2 above**: the max of 98 regions per bubble
+> is real but is not the binding problem — removing the catastrophic tail entirely still
+> leaves Foam C rising at ~2.3× the reference, because the over-segmentation is broad
+> (median ~2 regions per bubble), not concentrated. Only option 3 (a learned detector)
+> remains, now with four failed cascade repairs as evidence for it.
+
 ## 6. Status of Foam C ground truth
 Unchanged from `docs/foamc_labelability.md`: **exp3 f000/f001 are labelable** (554 / 525
 regions, contours follow rims); **f049 onward are not**, and this document explains why.
