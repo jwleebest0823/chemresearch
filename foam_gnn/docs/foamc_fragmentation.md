@@ -142,3 +142,27 @@ labelable until the fragmentation is fixed at source.
 
 **Artifacts:** diagnostics in this document are reproducible from
 `dev/assess_foamc_labelability.py` plus the inline measurements recorded here.
+
+---
+
+## ADDENDUM (2026-08-05) — the h_maxima reference was wrong; §2's ratio is refuted
+Foam C now has hand-labeled ground truth (`exp3` f000/f001,
+`docs/foamc_detection_accuracy.md`). Measured against truth rather than against the
+h_maxima reference:
+
+* **Over-segmentation is 6–12%, not ~2.3×.** The labeler rejected 37/574 (f000) and
+  68/564 (f001) pre-seed regions. Split rate 0.000/0.014, merge rate 0.000, and
+  predicted regions per GT bubble is **median 1.0, p90 1, max 3** — nothing resembling
+  the "median 2.0–2.5, max 98" reported in §2 against the h_maxima reference.
+* **The error was in the reference: h_maxima was UNDER-detecting Foam C.** Every ratio
+  in §2 and §3 expressed as "N× the h_maxima reference" is therefore an upper bound that
+  is now known to be far too loose. The tables are left as recorded, but they measure
+  disagreement between two detectors, not error.
+* **§4 and §5 still stand.** The fragmentation guard still fires: after the Li mask fix,
+  exp3 counts still climb 574 → 1193 (2.08×) across f000–f056. The count trend is
+  genuinely unphysical even though the per-frame over-segmentation is small — the excess
+  accumulates over the sequence. The mask fix delayed the trip (frame ~11 → ~36–44) but
+  did not prevent it.
+* **The dominant failure is the opposite of what §2 claimed: UNDER-detection.** One or
+  two regions per frame are fused blobs spanning 45–95 median bubbles, and only ~60% of
+  Foam C's foam area carries a validated bubble (Foam A: 77%).

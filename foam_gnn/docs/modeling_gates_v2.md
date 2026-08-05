@@ -134,3 +134,44 @@ bubbles* from the training foam, and standardisation used train-fold statistics 
 **Artifacts:** `qc/modeling/{gate1_v2_baselines,gate2_v2_vonneumann,gate3_v2_comparison}.csv`,
 `gates_v2_summary.json`, `trusted_v2*.csv`. Drivers: `dev/build_trusted_v2.py`,
 `dev/run_gates_v2.py`. Model: `foam_gnn.gnn`.
+
+---
+
+## ADDENDUM (2026-08-05) — Foam C gates NOT re-run; the data is measurably unphysical
+Appended, not merged, so the original record stands.
+
+Foam C now has ground truth (`docs/foamc_detection_accuracy.md`), and the brief was to
+re-run Gates 1–3 on Foam C **if** detection proved acceptable. It did not, and I did not
+run them. The evidence:
+
+**1. A coarsening foam cannot gain bubbles, and exp3 gains them in every window.**
+Per-frame region counts f000–f049 after the Li mask fix, Spearman ρ of count vs frame:
+
+| window | ρ | p | slope | net change |
+|---|---|---|---|---|
+| f000–f049 (all) | **+0.979** | 1.1e-34 | +11.7 /frame | **+105%** |
+| f000–f036 (pre-guard) | **+0.976** | 1.1e-24 | +8.9 /frame | **+75%** |
+| f000–f019 (early) | **+0.958** | 3.4e-11 | +6.5 /frame | +19% |
+| f000–f010 (old guard window) | **+0.852** | 8.7e-04 | +4.8 /frame | +5% |
+| **exp1_run0 f000–f098 (Foam A control)** | **−0.870** | 1.8e-31 | −0.4 /frame | **−39%** |
+
+**There is no clean Foam C window.** The mask fix pushed the fragmentation guard's trip
+point from frame 11 to **frame 37**, but that is not "37 usable frames" — the count rises
+monotonically from frame ~2; the guard's 1.50× threshold is simply too coarse to see a
+slow drift. Foam A, run through the identical statistic, falls as physics requires.
+
+**2. The new ground truth cannot certify the frames that matter.** It covers f000/f001
+only — the early frames that were never in doubt — and it was produced by a
+**deletion-only** edit (all 537 GT bubbles at f000 are pixel-identical to the pre-seed),
+so recall is 1.0 by construction and the under-detection that dominates Foam C is
+invisible to it.
+
+Fitting `dA/dt = K(n−6)` to tracks drawn from a sequence whose bubble count doubles
+through coarsening would produce numbers, not evidence. **The fragmentation guard stays
+at `raise`. Every Foam C statement in this document — including the Foam C von Neumann
+failure — remains UNSUPPORTED**, now for a measured rather than an inferred reason.
+
+**Consequence for the t+20 GNN result.** The replication test on a second GT-validated
+foam could not be run: Foam C is the only other foam with any ground truth, and it is
+rejected above. **The t+20 Foam A win therefore still rests on one cell of six, with no
+independent replication.** That is a real limitation of the current evidence.

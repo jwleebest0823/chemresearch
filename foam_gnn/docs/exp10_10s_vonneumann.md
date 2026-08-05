@@ -128,3 +128,28 @@ revive the physics-informed modeling path (which would have been outcome (a)).
 **Artifacts:** `qc/exp10/analysis_summary.json`, `vonneumann_10s_vs_30s.png`,
 `prop_{coverage,birth}_F.csv`, `prop_{trusted,bft,events,diag}_s{1,3}.*`. Drivers:
 `dev/exp10_{diagnose,propagate,analyze}.py`.
+
+---
+
+## ADDENDUM (2026-08-05) — exp10's edge distances were never interpretable
+Added, not merged into the text above, so the original record stands.
+
+The foam-mask audit (`docs/foam_mask_coverage.md`) added a clipping diagnostic: the
+fraction of the image border covered by foam. **exp10 measures 23–25%**, by far the
+highest of any usable foam (exp1/exp4–exp8 = 0%, exp3 = 2–8%). The foam runs off the
+field of view, so `dist_to_edge` there measures distance to the **frame**, not to the
+evaporation edge.
+
+**Consequence: any exp10 conclusion resting on radial position is unsupported.** That
+includes the size × edge-distance stratification quoted in §"trackability" above — the
+"small × near-edge" cell for exp10 is defined by a boundary that is partly the camera's,
+not the foam's. The numbers are not retracted, but they do not mean what their column
+headings say.
+
+**What this does NOT affect: the headline result.** The 10 s vs 30 s-subsampled von
+Neumann comparison uses `n_sides` and `dA/dt`, neither of which depends on
+`dist_to_edge`, and both arms are the same foam under the same mask. **The conclusion
+that von Neumann's failure is not a sampling artifact stands unchanged.**
+
+Separately, the Li mask fix moved exp10's `dist_to_edge` by +6 to +21 px in the mean, so
+even setting the clipping aside, the stratified numbers above are stale.

@@ -197,3 +197,18 @@ the argument: the failure is not in how markers are placed.
   fires on Foam C at frame 11. Nothing here weakened it.
 * **No Foam C preseeds were regenerated** — that step was conditional on a working fix.
 * Full test suite: 141 passed (unchanged; no source was modified).
+
+---
+
+## ADDENDUM (2026-08-05) — the reference this document is measured against was wrong
+Every Foam C number here is measured against the h_maxima *reference*, with the caveat
+(§0, §5) that its own accuracy was unknown. Hand-labeled Foam C ground truth now exists
+(`docs/foamc_detection_accuracy.md`) and shows **h_maxima was under-detecting**: true
+over-segmentation at f000/f001 is 6–12%, not the ~2.3× the reference implied.
+
+This does **not** change the conclusions. The four designs were rejected for failing the
+*dual constraint* — each satisfied Foam A and Foam C only in disjoint parameter ranges —
+and that comparison is internal to the sweeps. But the §3.2 framing ("still ~2.3× the
+reference") overstates the residual error, and the recommendation in §5 is strengthened:
+the binding problem is under-detection of unresolved microbubble clusters, which no
+marker-placement rule addresses.
