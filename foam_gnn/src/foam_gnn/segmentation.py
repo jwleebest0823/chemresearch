@@ -36,6 +36,7 @@ Shapes: images are ``(H, W)`` uint8; label maps are ``(H, W)`` int32 with 0 = bg
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -55,6 +56,8 @@ __all__ = [
     "SegmentationResult",
     "preprocess",
     "compute_foam_mask",
+    "foam_edge_density",
+    "foam_mask_clipping",
     "Segmenter",
     "WatershedSegmenter",
     "SAMSegmenter",
@@ -149,6 +152,58 @@ def preprocess(img: np.ndarray, cfg: PreprocConfig) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 # Foam boundary
 # --------------------------------------------------------------------------- #
+def foam_edge_density(img: np.ndarray, cfg: BoundaryConfig) -> np.ndarray:
+    """Blurred Sobel-magnitude map: high inside the foam (films), low on background.
+
+    img : uint8 (H, W) -> float64 (H, W).
+    """
+    gl = cv2.createCLAHE(clipLimit=cfg.clahe_clip, tileGridSize=(8, 8)).apply(img)
+    sob = cv2.magnitude(
+        cv2.Sobel(gl, cv2.CV_64F, 1, 0, ksize=3),
+        cv2.Sobel(gl, cv2.CV_64F, 0, 1, ksize=3),
+    )
+    return cv2.GaussianBlur(sob, (0, 0), cfg.edge_sigma)
+
+
+def _density_threshold(dens: np.ndarray, cfg: BoundaryConfig) -> float:
+    """Split the edge-density map into background / foam. float64 (H, W) -> threshold.
+
+    See the DECISION on ``BoundaryConfig.thresh_mode``: the legacy ``mean + k*std`` rule
+    scales with the foam's own area fraction and silently eats foam on frames the foam
+    fills. Otsu uses the valley between the two density modes instead.
+    """
+    if cfg.thresh_mode == "mean_k_std":
+        return float(dens.mean() + cfg.thresh_k * dens.std())
+    if cfg.thresh_mode not in ("li", "otsu"):
+        raise ValueError(
+            f"unknown BoundaryConfig.thresh_mode={cfg.thresh_mode!r}; "
+            "choose from {'li', 'otsu', 'mean_k_std'}"
+        )
+    if float(np.ptp(dens)) < 1e-9:
+        raise RuntimeError(
+            "edge-density map is constant: boundary detection cannot separate "
+            "foam from background on this frame"
+        )
+    from skimage.filters import threshold_li, threshold_otsu
+    thr = float(threshold_li(dens) if cfg.thresh_mode == "li" else threshold_otsu(dens))
+    if not np.isfinite(thr):
+        raise RuntimeError(f"{cfg.thresh_mode} threshold is not finite on this frame")
+    return thr
+
+
+def foam_mask_clipping(mask: np.ndarray) -> float:
+    """Fraction of the image border covered by foam (0 = free-floating, 1 = fills frame).
+
+    When this is large the foam extends beyond the field of view, so ``dist_to_edge``
+    measures distance to the *frame*, not to the evaporation edge, and every radial /
+    edge-distance analysis on that frame is uninterpretable.
+
+    mask : bool (H, W) -> float in [0, 1].
+    """
+    border = np.concatenate([mask[0, :], mask[-1, :], mask[1:-1, 0], mask[1:-1, -1]])
+    return float(border.mean()) if border.size else 0.0
+
+
 def compute_foam_mask(img: np.ndarray, cfg: BoundaryConfig) -> tuple[np.ndarray, np.ndarray]:
     """Detect the outer foam aggregate and its distance-to-edge map.
 
@@ -160,13 +215,8 @@ def compute_foam_mask(img: np.ndarray, cfg: BoundaryConfig) -> tuple[np.ndarray,
     img : uint8 (H, W) -> (foam_mask bool (H, W), dist_to_edge float32 (H, W)).
     """
     check_array("foam_mask.img", img, ndim=2, dtype=np.uint8)
-    gl = cv2.createCLAHE(clipLimit=cfg.clahe_clip, tileGridSize=(8, 8)).apply(img)
-    sob = cv2.magnitude(
-        cv2.Sobel(gl, cv2.CV_64F, 1, 0, ksize=3),
-        cv2.Sobel(gl, cv2.CV_64F, 0, 1, ksize=3),
-    )
-    dens = cv2.GaussianBlur(sob, (0, 0), cfg.edge_sigma)
-    m = (dens > dens.mean() + cfg.thresh_k * dens.std()).astype(np.uint8)
+    dens = foam_edge_density(img, cfg)
+    m = (dens > _density_threshold(dens, cfg)).astype(np.uint8)
     m = cv2.morphologyEx(
         m, cv2.MORPH_CLOSE,
         cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.density_close_ksize,) * 2),
@@ -183,6 +233,17 @@ def compute_foam_mask(img: np.ndarray, cfg: BoundaryConfig) -> tuple[np.ndarray,
     mask = ndi.binary_fill_holes(mask).astype(bool)
     if cfg.boundary_erode_px > 0:
         mask = ndi.binary_erosion(mask, iterations=cfg.boundary_erode_px)
+    clip = foam_mask_clipping(mask)
+    if clip > cfg.clip_border_warn_frac:
+        warnings.warn(
+            f"foam mask covers {clip:.0%} of the image border (> "
+            f"{cfg.clip_border_warn_frac:.0%}): the foam extends beyond the field of "
+            "view, so dist_to_edge measures distance to the FRAME, not to the "
+            "evaporation edge. Radial / edge-distance results on this frame are not "
+            "interpretable as distance-to-evaporation-edge.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     dist = ndi.distance_transform_edt(mask).astype(np.float32)
     return mask, check_array("dist_to_edge", dist, ndim=2, finite=True, nonneg=True)
 

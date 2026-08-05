@@ -127,3 +127,60 @@ def test_sam_stub_raises(frames):
     cfg = PipelineConfig()
     with pytest.raises(NotImplementedError):
         SAMSegmenter(cfg).segment(frames[0])
+
+
+# ------------------ foam-mask coverage regression (docs/foam_mask_coverage.md) ------ #
+def _foam_with_weak_lobe() -> np.ndarray:
+    """A foam blob whose TOP lobe has sparse films (large bubbles) => low edge density.
+
+    This reproduces the exp3 defect in miniature: the legacy ``mean + k*std`` threshold
+    scales with the foam's area fraction and cuts the sparse lobe off as an open bay
+    that fill_holes cannot recover.
+    """
+    img = np.full((320, 320), 160, np.uint8)
+    cv2.circle(img, (160, 190), 110, 205, -1)      # dense body
+    for y in range(90, 300, 14):                    # many films => high edge density
+        cv2.line(img, (50, y), (270, y), 40, 2)
+    for x in range(50, 271, 14):
+        cv2.line(img, (x, 90), (x, 300), 40, 2)
+    cv2.circle(img, (160, 90), 78, 205, -1)         # sparse lobe on top
+    for c in ((120, 70), (200, 70), (160, 118)):    # only a few big bubbles
+        cv2.circle(img, c, 32, 40, 2)
+    return img
+
+
+def test_li_threshold_recovers_the_sparse_lobe_that_legacy_drops():
+    import dataclasses
+    cfg = PipelineConfig().boundary
+    img = _foam_with_weak_lobe()
+    legacy, _d = compute_foam_mask(img, dataclasses.replace(cfg, thresh_mode="mean_k_std"))
+    new, _d2 = compute_foam_mask(img, cfg)          # shipped default (li)
+    lobe = np.zeros(img.shape, bool)
+    lobe[30:70, 130:190] = True                     # inside the sparse top lobe
+    assert new[lobe].mean() > legacy[lobe].mean(), (
+        "the shipped threshold must cover at least as much of the sparse lobe as legacy"
+    )
+    assert new.sum() >= legacy.sum()
+
+
+def test_unknown_thresh_mode_fails_loud():
+    import dataclasses
+    bad = dataclasses.replace(PipelineConfig().boundary, thresh_mode="nope")
+    with pytest.raises(ValueError, match="thresh_mode"):
+        compute_foam_mask(_foam_with_weak_lobe(), bad)
+
+
+def test_foam_mask_clipping_measures_border_coverage():
+    from foam_gnn.segmentation import foam_mask_clipping
+    free = np.zeros((100, 100), bool)
+    free[30:70, 30:70] = True
+    assert foam_mask_clipping(free) == 0.0
+    assert foam_mask_clipping(np.ones((100, 100), bool)) == pytest.approx(1.0)
+
+
+def test_clipped_foam_warns_that_dist_to_edge_is_not_evaporation_edge():
+    img = np.full((200, 200), 40, np.uint8)         # films everywhere -> foam fills frame
+    for y in range(0, 200, 10):
+        cv2.line(img, (0, y), (199, y), 205, 6)
+    with pytest.warns(RuntimeWarning, match="field of view"):
+        compute_foam_mask(img, PipelineConfig().boundary)

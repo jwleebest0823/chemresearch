@@ -97,9 +97,26 @@ class BoundaryConfig:
 
     clahe_clip: float = 2.0
     edge_sigma: float = 15.0                       # blur scale for edge-density map
-    thresh_k: float = 0.4                          # mask = density > mean + thresh_k * std
+    # DECISION: Li's minimum-cross-entropy threshold, NOT the legacy ``mean + thresh_k*std``.
+    # The legacy rule takes its statistics over the WHOLE image, in which the foam is
+    # itself the high-density class, so the threshold RISES with the foam's area fraction
+    # — a frame that is mostly foam gets a STRICTER foam threshold. Measured on exp3 f000
+    # (foam ~54% of frame): legacy threshold 151.6 while large-bubble regions sit at ~107
+    # and true background at ~50, cutting 15.5% of the visible foam away.
+    #
+    # Li rather than Otsu: the density histogram is a narrow background spike plus a broad
+    # foam spread, i.e. very unequal variances, which is exactly where Otsu's equal-variance
+    # assumption misplaces the cut. MEASURED on the 14 Foam A GT frames (pooled F1):
+    # legacy 0.8958, Otsu 0.8488 (regresses every frame), Li 0.9030. Li also raises exp3
+    # f000 coverage 84.5% -> 99.4%. Neither has a free parameter.
+    # See docs/foam_mask_coverage.md.
+    thresh_mode: str = "li"                        # {"li", "otsu", "mean_k_std"}
+    thresh_k: float = 0.4                          # LEGACY only (thresh_mode="mean_k_std")
     density_close_ksize: int = 41
     mask_close_ksize: int = 61
+    # Fraction of the image border the foam may cover before dist_to_edge stops being a
+    # true distance-to-evaporation-edge (the foam is clipped by the field of view).
+    clip_border_warn_frac: float = 0.10
     # DECISION: Step-0 mask is slightly generous (sits just outside outermost films).
     # boundary_erode_px>0 tightens it; a principled snap-to-film is a future refinement.
     boundary_erode_px: int = 0
