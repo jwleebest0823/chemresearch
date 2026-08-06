@@ -184,3 +184,69 @@ def test_clipped_foam_warns_that_dist_to_edge_is_not_evaporation_edge():
         cv2.line(img, (0, y), (199, y), 205, 6)
     with pytest.warns(RuntimeWarning, match="field of view"):
         compute_foam_mask(img, PipelineConfig().boundary)
+
+
+# --------- threshold-stability selector (docs/exp1_churn_bisection.md) ------------ #
+def _halo_frame() -> np.ndarray:
+    """A textured foam blob surrounded by a LOW-CONTRAST HALO.
+
+    Reproduces the late-Foam-A failure in miniature: the halo sits just below the
+    legacy threshold and just above Li's, so the mask area is a step function of the
+    threshold and a small threshold change floods the mask into the halo.
+    """
+    img = np.full((260, 260), 150, np.uint8)
+    cv2.circle(img, (130, 130), 105, 158, -1)        # faint halo
+    cv2.circle(img, (130, 130), 60, 205, -1)         # foam body
+    for y in range(70, 191, 10):                      # films -> high edge density
+        cv2.line(img, (70, y), (190, y), 45, 2)
+    for x in range(70, 191, 10):
+        cv2.line(img, (x, 70), (x, 190), 45, 2)
+    return img
+
+
+def test_stability_selector_is_a_noop_when_off_and_validates_its_tolerances():
+    import dataclasses
+    from foam_gnn.segmentation import _stable_threshold, foam_edge_density
+    cfg = PipelineConfig().boundary
+    dens = foam_edge_density(_halo_frame(), cfg)
+    off = dataclasses.replace(cfg, thresh_stability="off")
+    assert _stable_threshold(dens, 12.34, off) == 12.34
+    bad = dataclasses.replace(cfg, thresh_stability_eps=0.0)
+    with pytest.raises(ValueError, match="thresh_stability_eps"):
+        _stable_threshold(dens, 12.34, bad)
+
+
+def test_stability_selector_steps_off_a_cliff_in_the_density_map():
+    """Mechanism test on a CONTROLLED density map (image formation factored out).
+
+    Core at density 100, a wide halo at 60, background at 10. A threshold just below
+    the halo floods the mask; stepping up across 60 collapses it. The selector must
+    detect that its starting point is on the cliff and climb above the halo.
+    """
+    from foam_gnn.segmentation import _stable_threshold, _mask_from_density
+    cfg = PipelineConfig().boundary
+    dens = np.full((400, 400), 10.0)
+    cv2.circle(dens, (200, 200), 170, 60.0, -1)      # halo plateau
+    cv2.circle(dens, (200, 200), 70, 100.0, -1)      # foam core
+    # thr0 must sit within ONE eps step of the cliff: the selector uses a single-step
+    # lookahead, so a cliff further away than eps*thr reads as a false plateau. That is
+    # a real limitation of the mechanism (it is why eps=0.015 fails on exp1 f197) and is
+    # documented in docs/exp1_churn_bisection.md, not papered over.
+    thr0 = 59.0                                       # just BELOW the halo -> floods
+    flooded = _mask_from_density(dens, thr0, cfg)
+    thr = _stable_threshold(dens, thr0, cfg)
+    stable = _mask_from_density(dens, thr, cfg)
+    assert thr > thr0, "selector did not step up off the cliff"
+    assert stable.sum() < 0.5 * flooded.sum(), (
+        f"selector failed to shed the halo: {stable.sum()} vs {flooded.sum()}")
+    # and it must stop once on the core plateau, not run away to an empty mask
+    assert stable.sum() > 0
+
+
+def test_stability_selector_leaves_a_plateau_frame_untouched(frames):
+    """Frames already on a plateau (all GT frames) must be bit-identical."""
+    import dataclasses
+    cfg = PipelineConfig().boundary
+    raw, _d = compute_foam_mask(frames[0], dataclasses.replace(cfg, thresh_stability="off"))
+    stab, _d2 = compute_foam_mask(frames[0], cfg)
+    assert np.array_equal(raw, stab)

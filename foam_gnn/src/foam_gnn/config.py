@@ -117,6 +117,15 @@ class BoundaryConfig:
     # Fraction of the image border the foam may cover before dist_to_edge stops being a
     # true distance-to-evaporation-edge (the foam is clipped by the field of view).
     clip_border_warn_frac: float = 0.10
+    # DECISION: pick the threshold by LOCAL STABILITY, not by value. Measured: on late
+    # Foam A frames the mask area is a step function of the threshold (exp1 f175 jumps
+    # 20.2% -> 30.2% of the frame for a 5% threshold change) and the cliff moves between
+    # frames, so Li's k~0.94 flickers and the tracker re-mints ids. See
+    # docs/exp1_churn_bisection.md. "off" restores the raw thresh_mode value.
+    thresh_stability: str = "on"                   # {"on", "off"}
+    thresh_stability_eps: float = 0.03             # relative threshold step
+    thresh_stability_tol: float = 0.05             # max mask-area loss per step on a plateau
+    thresh_stability_max_steps: int = 8
     # DECISION: Step-0 mask is slightly generous (sits just outside outermost films).
     # boundary_erode_px>0 tightens it; a principled snap-to-film is a future refinement.
     boundary_erode_px: int = 0

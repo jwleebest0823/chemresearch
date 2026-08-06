@@ -191,6 +191,58 @@ def _density_threshold(dens: np.ndarray, cfg: BoundaryConfig) -> float:
     return thr
 
 
+def _mask_from_density(dens: np.ndarray, thr: float, cfg: BoundaryConfig) -> np.ndarray | None:
+    """density (H,W) + threshold -> foam mask bool (H,W), or None if nothing survives.
+
+    close -> largest connected component -> close -> fill holes.
+    """
+    m = cv2.morphologyEx(
+        (dens > thr).astype(np.uint8), cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.density_close_ksize,) * 2))
+    n, lab, stats, _c = cv2.connectedComponentsWithStats(m)
+    if n <= 1:
+        return None
+    big = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    out = cv2.morphologyEx(
+        (lab == big).astype(np.uint8), cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.mask_close_ksize,) * 2))
+    return ndi.binary_fill_holes(out).astype(bool)
+
+
+def _stable_threshold(dens: np.ndarray, thr0: float, cfg: BoundaryConfig) -> float:
+    """Move the threshold off a CLIFF onto a PLATEAU. float -> float.
+
+    # DECISION: measured failure (docs/exp1_churn_bisection.md) — on late Foam A frames a
+    # low-contrast halo makes the mask area a STEP function of the threshold: at exp1
+    # f175 the mask jumps 20.2% -> 30.2% of the frame between k=1.00 and k=0.95 of the
+    # legacy threshold, and the cliff MOVES between frames (f197's sits at 0.95-0.93).
+    # Li lands at k~0.94, i.e. on the cliff, so the mask flickers frame to frame and the
+    # tracker re-mints ids — the exp1_run1 churn. No scalar threshold is safe there, so
+    # the threshold is chosen by LOCAL STABILITY instead of by value: step up while a
+    # small upward perturbation would shrink the mask by more than `tol`. Frames already
+    # on a plateau (all of exp3, early Foam A) are untouched, so this keeps the Li
+    # coverage gain and only acts where the measurement says the choice is ill-posed.
+    """
+    if cfg.thresh_stability != "on":
+        return thr0
+    eps, tol = cfg.thresh_stability_eps, cfg.thresh_stability_tol
+    if not (0.0 < eps < 1.0) or not (0.0 < tol < 1.0):
+        raise ValueError(
+            f"thresh_stability_eps={eps} and _tol={tol} must both lie in (0, 1)")
+    thr = float(thr0)
+    for _ in range(int(cfg.thresh_stability_max_steps)):
+        m = _mask_from_density(dens, thr, cfg)
+        if m is None:
+            return thr
+        a = float(m.mean())
+        m2 = _mask_from_density(dens, thr * (1.0 + eps), cfg)
+        a2 = 0.0 if m2 is None else float(m2.mean())
+        if a <= 0.0 or (a - a2) / a <= tol:
+            return thr                      # on a plateau
+        thr *= 1.0 + eps                    # on a cliff: step up and re-test
+    return thr
+
+
 def foam_mask_clipping(mask: np.ndarray) -> float:
     """Fraction of the image border covered by foam (0 = free-floating, 1 = fills frame).
 
@@ -216,21 +268,11 @@ def compute_foam_mask(img: np.ndarray, cfg: BoundaryConfig) -> tuple[np.ndarray,
     """
     check_array("foam_mask.img", img, ndim=2, dtype=np.uint8)
     dens = foam_edge_density(img, cfg)
-    m = (dens > _density_threshold(dens, cfg)).astype(np.uint8)
-    m = cv2.morphologyEx(
-        m, cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.density_close_ksize,) * 2),
-    )
-    n, lab, stats, _ = cv2.connectedComponentsWithStats(m)
-    if n <= 1:
+    thr = _stable_threshold(dens, _density_threshold(dens, cfg), cfg)
+    mask = _mask_from_density(dens, thr, cfg)
+    if mask is None:
         h, w = img.shape
         return np.zeros((h, w), bool), np.zeros((h, w), np.float32)
-    big = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    mask = cv2.morphologyEx(
-        (lab == big).astype(np.uint8), cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.mask_close_ksize,) * 2),
-    )
-    mask = ndi.binary_fill_holes(mask).astype(bool)
     if cfg.boundary_erode_px > 0:
         mask = ndi.binary_erosion(mask, iterations=cfg.boundary_erode_px)
     clip = foam_mask_clipping(mask)
