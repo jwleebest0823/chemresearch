@@ -175,3 +175,45 @@ failure — remains UNSUPPORTED**, now for a measured rather than an inferred re
 foam could not be run: Foam C is the only other foam with any ground truth, and it is
 rejected above. **The t+20 Foam A win therefore still rests on one cell of six, with no
 independent replication.** That is a real limitation of the current evidence.
+
+---
+
+## ADDENDUM (2026-08-06) — re-run on the corrected pipeline: one result weakened, one RETRACTED
+Appended, not merged, so the original record stands. Full evidence:
+`docs/gates_v3_stability.md`.
+
+**1. The von Neumann recovery is WEAKENED.** Re-fit on the corrected Foam A trusted set
+(120 bubbles, 7271 rows):
+
+| h | K here | 95% CI | K>0? | K in this document |
+|---|---|---|---|---|
+| 1 | **+0.1435** | **[−0.0369, +0.2702]** | **NO** | +0.313 |
+| 5 | +0.2818 | [+0.2083, +0.3550] | yes | +0.355 |
+| 20 | +0.3483 | [+0.2731, +0.4267] | yes | +0.365 |
+
+The sign test now **fails at t+1**, and horizon-stability is much worse (K spans 2.4×
+across horizons where it spanned 1.17×). It still beats persistence everywhere. New:
+at t+20 the two runs of the same foam give **non-overlapping** K CIs (0.263 [0.174, 0.358]
+vs 0.505 [0.388, 0.623]). A control run of the same code on the *legacy* trusted set
+reproduces this document's K to three decimals (0.3131 / 0.3545 / 0.3648), so the change
+is a genuine pipeline effect, not a re-implementation difference.
+
+**2. The t+20 GNN result and the "topology is doing the work" claim are RETRACTED.**
+
+The decisive fact is structural, not numerical: under leave-one-foam-out with foams
+{A, C}, the row `test_foam == A` in this document's Gate 3 table means the model was
+**TRAINED ON FOAM C** — 786 trusted bubbles against Foam A's 125. Foam C has since been
+guard-rejected as unphysical (`docs/foamc_detection_accuracy.md`).
+
+A control settles the cause. Re-running the *same* leave-one-session-out design on the
+**legacy** trusted set — i.e. changing nothing but removing Foam C from training — the GNN
+already fails: t+20 d vs best baseline **+0.0384 [−0.1158, +0.2040]** (run0) and
+**+0.2379 [+0.1504, +0.3432]** (run1, significantly *worse*). On the corrected set it
+likewise fails (+0.0019 and +0.2425), while the **MLP now beats the best baseline**
+(−0.1063 [−0.1693, −0.0486] at t+20 run0) — the exact inverse of the contrast this
+document used to license the topology claim.
+
+**So the GNN win was never a property of the pipeline; it was a property of the Foam C
+training set**, which is data we have since measured as unphysical. Every Gate 3
+conclusion in this document that depends on the GNN beating the baselines, and the
+"topology is doing the work" interpretation, should be treated as withdrawn.
