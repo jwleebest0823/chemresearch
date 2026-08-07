@@ -59,6 +59,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from scipy import ndimage as ndi
 from scipy.optimize import linear_sum_assignment
 
 from .config import PipelineConfig, TrackConfig
@@ -208,6 +209,71 @@ def _estimate_drift(mask_t: np.ndarray, mask_t1: np.ndarray) -> tuple[float, flo
         mask_t.astype(np.float32), mask_t1.astype(np.float32), upsample_factor=4,
     )
     return float(shift[0]), float(shift[1])   # (dy, dx)
+
+
+def bridge_distance_px(labels: np.ndarray, radius_frac: float = 0.5,
+                       gap_quantile: float = 0.99,
+                       inside: np.ndarray | None = None) -> float:
+    """Per-frame, scale-adaptive maximum bridging distance (px). int32 (H,W) -> float.
+
+    # DECISION (D2, docs/correctness_audit.md): bubbles separated only by an unlabelled
+    # film or a rejected Plateau border are physically neighbours, but `_adjacency_lengths`
+    # needs two positive labels to touch, so those contacts are lost (13% of the foam
+    # interior is label 0; <n> = 4.48 against the Euler requirement of ~6).
+    #
+    # The bridge is capped by TWO per-frame measured scales, never a pixel constant:
+    #   * the `gap_quantile` of the gap half-width distribution -- the observed film /
+    #     Plateau-border thickness in THIS frame;
+    #   * `radius_frac` x the median bubble radius -- so a bridge can never span a
+    #     bubble-sized void even if a foam has fat unresolved regions (Foam C).
+    # Measured on Foam A: gap half-width p99 = 8.1 px, max 11.2 px, against a median
+    # bubble radius of 23.8 px -- i.e. every gap really is a film, not a void.
+    #
+    # Over-bridging is additionally blocked by construction: background is assigned to
+    # its NEAREST label, so an intervening labelled bubble always separates two
+    # non-neighbours. Only genuinely unlabelled material is ever crossed.
+    """
+    bg = labels == 0
+    if inside is not None:
+        bg = bg & inside
+    if not bg.any():
+        return 0.0
+    d = ndi.distance_transform_edt(labels == 0)
+    gaps = d[bg]
+    a = np.bincount(labels.ravel())[1:]
+    a = a[a > 0]
+    if a.size == 0:
+        return 0.0
+    med_r = float(np.median(np.sqrt(a / np.pi)))
+    return float(min(np.quantile(gaps, gap_quantile), radius_frac * med_r))
+
+
+def adjacency_lengths_bridged(labels: np.ndarray, max_bridge_px: float,
+                              inside: np.ndarray | None = None) -> dict[frozenset, int]:
+    """Shared-border length allowing contact ACROSS thin unlabelled gaps.
+
+    Each background pixel within ``max_bridge_px`` of a labelled region is assigned to
+    its nearest label; adjacency is then measured on the completed map. Two bubbles
+    become neighbours iff the unlabelled gap between them is at most
+    ``2 * max_bridge_px`` wide AND no third labelled region lies between them.
+
+    ``inside`` (bool (H, W)) restricts bridging to the foam interior, so labels are
+    never extended into the exterior background. ``max_bridge_px <= 0`` reproduces
+    :func:`_adjacency_lengths` exactly.
+    """
+    if max_bridge_px <= 0:
+        return _adjacency_lengths(labels)
+    bg = labels == 0
+    if not bg.any():
+        return _adjacency_lengths(labels)
+    dist, idx = ndi.distance_transform_edt(bg, return_indices=True)
+    filled = labels.copy()
+    take = bg & (dist <= float(max_bridge_px))
+    if inside is not None:
+        take &= inside
+    if take.any():
+        filled[take] = labels[idx[0][take], idx[1][take]]
+    return _adjacency_lengths(filled)
 
 
 def _adjacency_lengths(labels: np.ndarray) -> dict[frozenset, int]:

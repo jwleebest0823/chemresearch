@@ -193,3 +193,26 @@ Nothing here was tuned. The numbers are the first and only run of the corrected 
 **Artifacts:** `qc/modeling/{trusted_current_foamA.csv, gate1_v3_baselines.csv,
 gate2_v3_vonneumann.csv, gate3_v3_comparison.csv, gates_v3_summary.json}`. Drivers:
 `dev/rebuild_trusted_foamA.py`, `dev/run_gates_v3.py`.
+
+---
+
+## ADDENDUM (2026-08-07) — the von Neumann verdict in this document is SUPERSEDED
+The audit (`docs/correctness_audit.md`) showed the weakening reported above was largely a
+least-squares leverage artifact, and the repairs are now applied
+(`docs/gates_v4_repairs.md`). With a leverage-resistant estimator, a dropout-recovery
+filter, and corrected neighbour counting:
+
+| failure mode | this document | after repairs |
+|---|---|---|
+| correct sign | **FAILS at t+1** (K CI spans zero) | **PASSES at all three horizons** |
+| horizon-stable | **2.4× spread** | **1.04× spread** (K = +0.483 / +0.497 / +0.501) |
+| beats persistence | yes (in-sample) | **yes, out-of-sample, 6/6 folds** |
+
+**The "run0 and run1 disagree" framing in §4 is withdrawn as a misinterpretation.** K
+carries the magnitude of dA/dt and so is confounded with each epoch's coarsening rate;
+normalised, the two runs differ by 1.09×, not 1.64×.
+
+**The Gate 3 conclusion is unchanged and strengthened.** With K estimated properly the von
+Neumann baseline becomes the best model in all six cells; the GNN is significantly *worse*
+than it everywhere, and the MLP no longer beats it either. The "topology is doing the work"
+retraction stands.

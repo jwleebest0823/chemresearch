@@ -36,8 +36,9 @@ def _two_bubbles() -> tuple[np.ndarray, np.ndarray]:
 
 def test_build_frame_graph_basic():
     labels, dist = _two_bubbles()
-    G = build_frame_graph(labels, dist, cfg=GraphConfig(), frame_offset=(100.0, 200.0),
-                          frame=7, time_seconds=210.0)
+    # bridge_gaps="off": this test pins the EXACT unbridged shared-border length
+    G = build_frame_graph(labels, dist, cfg=GraphConfig(bridge_gaps="off"),
+                          frame_offset=(100.0, 200.0), frame=7, time_seconds=210.0)
     assert set(G.nodes) == {1, 2}
     assert G.number_of_edges() == 1
     assert G.graph["frame"] == 7 and G.graph["time_seconds"] == 210.0
@@ -71,13 +72,13 @@ def test_min_border_filter_controls_edges_and_n_sides():
     labels[0:2, 20:25] = 3           # shares only 2-px film with 2
     dist = np.ones((12, 30), np.float32)
 
-    g_strict = build_frame_graph(labels, dist, cfg=GraphConfig(min_shared_border_px=3))
+    g_strict = build_frame_graph(labels, dist, cfg=GraphConfig(min_shared_border_px=3, bridge_gaps="off"))
     assert g_strict.has_edge(1, 2)
     assert not g_strict.has_edge(2, 3)               # 2-px film gated out
     assert g_strict.nodes[2]["n_sides"] == 1
     assert g_strict.nodes[3]["n_sides"] == 0
 
-    g_loose = build_frame_graph(labels, dist, cfg=GraphConfig(min_shared_border_px=1))
+    g_loose = build_frame_graph(labels, dist, cfg=GraphConfig(min_shared_border_px=1, bridge_gaps="off"))
     assert g_loose.has_edge(2, 3)
     assert g_loose.nodes[2]["n_sides"] == 2
 
@@ -117,3 +118,38 @@ def test_node_edge_feature_names_match_config():
     cfg = PipelineConfig()
     assert tuple(cfg.graph.node_features) == NODE_FEATURES
     assert tuple(cfg.graph.edge_features) == EDGE_FEATURES
+
+
+# ---- gap-aware adjacency (D2, docs/correctness_audit.md) --------------------- #
+def test_bridging_counts_neighbours_across_a_thin_unlabelled_film():
+    """Two bubbles separated only by a thin unlabelled film ARE neighbours."""
+    labels = np.zeros((12, 26), np.int32)
+    labels[1:11, 1:11] = 1
+    labels[1:11, 15:25] = 2          # 4-px unlabelled gap between them
+    dist = np.ones((12, 26), np.float32)
+    off = build_frame_graph(labels, dist, cfg=GraphConfig(bridge_gaps="off"))
+    on = build_frame_graph(labels, dist, cfg=GraphConfig(bridge_gaps="on"))
+    assert not off.has_edge(1, 2), "unbridged: a background gap must block adjacency"
+    assert on.has_edge(1, 2), "bridged: a thin film must not block adjacency"
+    assert on.nodes[1]["n_sides"] == 1 and off.nodes[1]["n_sides"] == 0
+
+
+def test_bridging_cannot_cross_an_intervening_bubble():
+    """An intervening LABELLED bubble must still separate two non-neighbours."""
+    labels = np.zeros((12, 40), np.int32)
+    labels[1:11, 1:11] = 1
+    labels[1:11, 14:24] = 3          # sits between 1 and 2
+    labels[1:11, 27:37] = 2
+    dist = np.ones((12, 40), np.float32)
+    G = build_frame_graph(labels, dist, cfg=GraphConfig(bridge_gaps="on"))
+    assert G.has_edge(1, 3) and G.has_edge(2, 3)
+    assert not G.has_edge(1, 2), "bridged across an intervening labelled bubble"
+
+
+def test_bridging_off_is_bit_identical_to_the_legacy_path():
+    labels = np.zeros((12, 26), np.int32)
+    labels[1:11, 1:11] = 1
+    labels[1:11, 11:21] = 2          # directly touching -> 10 px shared border
+    dist = np.ones((12, 26), np.float32)
+    a = build_frame_graph(labels, dist, cfg=GraphConfig(bridge_gaps="off"))
+    assert a.edges[1, 2]["contact_line_length"] == 10.0

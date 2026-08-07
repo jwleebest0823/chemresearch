@@ -39,7 +39,8 @@ import numpy as np
 from .config import GraphConfig, PipelineConfig
 from .guards import check_array
 from .segmentation import SegmentationResult
-from .tracking import TrackingResult, _adjacency_lengths
+from .tracking import (TrackingResult, _adjacency_lengths,
+                       adjacency_lengths_bridged, bridge_distance_px)
 
 __all__ = [
     "build_frame_graph",
@@ -165,7 +166,16 @@ def build_frame_graph(
         g = geom[bid]
         return float(g["area"]), float(g["cx"]), float(g["cy"])
 
-    adj = _adjacency_lengths(id_map)
+    gcfg = cfg
+    if getattr(gcfg, "bridge_gaps", "off") == "on":
+        _inside = dist_to_edge > 0            # foam interior only; never bridge outside
+        _bridge = bridge_distance_px(id_map, gcfg.bridge_radius_frac,
+                                     gcfg.bridge_gap_quantile, inside=_inside)
+        adj = adjacency_lengths_bridged(id_map, _bridge, inside=_inside)
+    elif getattr(gcfg, "bridge_gaps", "off") == "off":
+        adj = _adjacency_lengths(id_map)
+    else:
+        raise ValueError(f"unknown graph.bridge_gaps={gcfg.bridge_gaps!r}; choose 'on'/'off'")
     mb = cfg.min_shared_border_px
     # n_sides = number of neighbours sharing a film of at least mb pixels
     degree: dict[int, int] = {}

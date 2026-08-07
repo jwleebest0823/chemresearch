@@ -224,6 +224,14 @@ class GraphConfig:
         "contact_line_length", "squeezing_strain", "distance_to_evap_edge",
     )
     min_shared_border_px: int = 3                  # DECISION: below this two regions are not "neighbours"
+    # DECISION (D2, docs/correctness_audit.md): count bubbles separated only by a thin
+    # UNLABELLED film / rejected Plateau border as neighbours. Without this <n> = 4.48
+    # against the Euler requirement of ~6, because 13% of the foam interior is label 0.
+    # The bridge distance is measured per frame (see tracking.bridge_distance_px), never
+    # a pixel constant, and an intervening labelled bubble always blocks it.
+    bridge_gaps: str = "on"                        # {"on", "off"}
+    bridge_radius_frac: float = 0.5                # cap: fraction of median bubble radius
+    bridge_gap_quantile: float = 0.99              # cap: quantile of observed gap half-width
     # ── disappear-vs-coalesce classification + event confidence (Module 3) ───
     # DECISION: a T2 death is "coalesce" (vs "disappear") when one surviving,
     # previously-adjacent neighbour absorbs at least this fraction of the vanished
@@ -311,6 +319,14 @@ class StabilityConfig:
     # DECISION (D3): |Δ log area| above this between consecutive frames signals a
     # segmentation relabel / boundary theft → the track is split there.
     area_jump_tol: float = 0.5
+    # DECISION (D1, docs/correctness_audit.md): a V-shaped dropout-and-recovery is
+    # physically impossible for a real bubble, so it is detected by SHAPE rather than by
+    # tightening area_jump_tol (which would also cut genuine fast coarsening). Frame i is
+    # a dropout iff area falls by more than `dropout_frac` (log) from i-1 and returns to
+    # within `recovery_tol` (log) of that value within `dropout_window` frames.
+    dropout_frac: float = 0.22                     # log-drop to qualify as a dropout
+    recovery_tol: float = 0.12                     # log-distance back to the pre-drop area
+    dropout_window: int = 2                        # frames allowed for the recovery
     # ── gates (analysis is HALTED / flagged, not silently continued) ──────────
     # DECISION (D1 gate): below this many trusted bubbles the radial test is
     # declared underpowered and the finding is "too few stably-tracked bubbles".

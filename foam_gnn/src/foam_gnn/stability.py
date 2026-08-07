@@ -110,6 +110,47 @@ def _merge_break_frames(tracking: TrackingResult) -> dict[int, set[int]]:
     return out
 
 
+def _dropout_recovery_mask(area: np.ndarray, frames: np.ndarray, scfg) -> np.ndarray:
+    """Flag frames that are the bottom of a V-shaped area dropout-and-recovery.
+
+    A real bubble cannot lose a large fraction of its area and get it back one or two
+    frames later — that is a one-frame segmentation dropout (boundary theft, a
+    momentarily-missed film), not physics. The audit (docs/correctness_audit.md, D1)
+    traced the K-dominating outliers to exactly this: e.g. 32528 -> 20234 -> 32917 px².
+
+    # DECISION: the criterion is the QUALITATIVE V-shape, not a tuned magnitude. Frame
+    # i is flagged iff (a) area[i] is below area[i-1] by more than `dropout_frac` in log
+    # terms, and (b) some area[i+k], k <= `dropout_window`, returns to within
+    # `recovery_tol` (log) of area[i-1]. Monotone growth or shrinkage can never satisfy
+    # (b), so the rule cannot remove genuine coarsening however the constants are set;
+    # they only control sensitivity. Sensitivity is swept and reported in
+    # docs/gates_v4_repairs.md.
+
+    area, frames : (n,) arrays for ONE bubble, sorted by frame.
+    Returns a (n,) bool mask.
+    """
+    n = len(area)
+    out = np.zeros(n, dtype=bool)
+    if n < 3:
+        return out
+    la = np.log(np.clip(area.astype(float), 1e-9, None))
+    w = int(scfg.dropout_window)
+    for i in range(1, n - 1):
+        if frames[i] - frames[i - 1] != 1:
+            continue
+        drop = la[i - 1] - la[i]
+        if drop <= scfg.dropout_frac:
+            continue
+        for k in range(1, w + 1):
+            j = i + k
+            if j >= n or frames[j] - frames[i] != k:
+                break
+            if abs(la[j] - la[i - 1]) <= scfg.recovery_tol:
+                out[i] = True
+                break
+    return out
+
+
 def select_stable_tracks(
     node_table: pd.DataFrame,
     tracking: TrackingResult,
@@ -139,6 +180,7 @@ def select_stable_tracks(
     trusted_blocks: list[tuple[np.ndarray, int]] = []   # (row indices, segment_id)
     surv_rows: list[dict] = []
     seg_id = 0
+    n_dropout_rows = 0
     for bid, g in eligible.groupby("bubble_id"):
         g = g.sort_values("frame")
         frames = g["frame"].to_numpy()
@@ -146,12 +188,16 @@ def select_stable_tracks(
         idx = g.index.to_numpy()
         mbreak = merge_breaks.get(int(bid), set())
         # break indices: start a new run whenever continuity is violated
+        dropout = _dropout_recovery_mask(area, frames, scfg)
+        n_dropout_rows += int(dropout.sum())
         starts = [0]
         for i in range(1, len(frames)):
             gap = frames[i] - frames[i - 1] != 1
             merged = int(frames[i]) in mbreak
             jump = abs(np.log(max(area[i], 1e-9) / max(area[i - 1], 1e-9))) > tol
-            if gap or merged or jump:
+            # isolate a dropout-recovery frame: break both entering and leaving it
+            dip = bool(dropout[i] or dropout[i - 1])
+            if gap or merged or jump or dip:
                 starts.append(i)
         starts.append(len(frames))
 
@@ -202,6 +248,7 @@ def select_stable_tracks(
     n_unique = int(node_table["bubble_id"].nunique())
     n_trusted_bubbles = int(segments["bubble_id"].nunique()) if len(segments) else 0
     stats = {
+        "n_dropout_rows": int(n_dropout_rows),
         "n_eligible_bubbles": int(len(eligible_survival)),
         "n_trusted_bubbles": n_trusted_bubbles,
         "n_segments": int(len(segments)),

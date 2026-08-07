@@ -221,6 +221,61 @@ def predict_per_bubble_linear(samples: pd.DataFrame) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 # von Neumann law:  dA/dt = K (n - 6)   (the physics anchor)
 # --------------------------------------------------------------------------- #
+def _weighted_median(v: np.ndarray, w: np.ndarray) -> float:
+    """Weighted median of ``v`` with non-negative weights ``w``."""
+    o = np.argsort(v)
+    v, w = v[o], w[o]
+    c = np.cumsum(w)
+    if c.size == 0 or c[-1] <= 0:
+        return float("nan")
+    return float(v[np.searchsorted(c, 0.5 * c[-1])])
+
+
+def k_through_origin(x: np.ndarray, y: np.ndarray, method: str = "ls",
+                     min_abs_x: float = 1.0) -> float:
+    """Through-origin slope of ``y`` on ``x`` by one of several estimators.
+
+    ``ls``        ``sum(xy)/sum(x^2)`` — least squares; every row weighted by ``x^2``.
+    ``robust``    ``median(y/x)`` over ``|x| >= min_abs_x`` — the median of the
+                  per-point through-origin slopes.
+    ``wrobust``   weighted median of ``y/x`` with weights ``|x|``.
+    ``theilsen``  median of pairwise slopes (estimates a FREE slope; cross-check only).
+
+    # DECISION (D1, benchmarked in dev/estimator_bench.py against a known K=0.35):
+    # with the contamination rate the audit measured (1.2% of rows being flickering
+    # giants — large |n-6| with a corrupted, large-magnitude dA/dt), least squares is
+    # biased by -0.093 with an inter-replicate IQR of 1.04, i.e. unusable; `robust`,
+    # `wrobust` and `theilsen` are all unbiased with IQR ~0.008-0.010. On clean data
+    # all four agree and LS is merely the most efficient (IQR 0.0038 vs 0.0078).
+    # `robust` is the shipped primary because it is the natural robust analogue of a
+    # THROUGH-ORIGIN fit (each point contributes one independent slope through the
+    # origin), whereas Theil-Sen's pairwise slopes correspond to a line WITH an
+    # intercept and so do not encode the physical anchor n=6 -> dA/dt=0. Rows with
+    # |x| < min_abs_x carry no through-origin slope information (they contribute 0 to
+    # both the LS numerator and denominator), so excluding them loses nothing.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if method == "ls":
+        s = float(np.sum(x * x))
+        return float(np.sum(x * y) / s) if s > 0 else float("nan")
+    if method == "theilsen":
+        if len(x) < 3 or np.ptp(x) == 0:
+            return float("nan")
+        from scipy.stats import theilslopes
+        return float(theilslopes(y, x)[0])
+    m = np.abs(x) >= float(min_abs_x)
+    if not m.any():
+        return float("nan")
+    r = y[m] / x[m]
+    if method == "robust":
+        return float(np.median(r))
+    if method == "wrobust":
+        return _weighted_median(r, np.abs(x[m]))
+    raise ValueError(f"unknown estimator {method!r}; "
+                     "choose from {'ls','robust','wrobust','theilsen'}")
+
+
 def fit_von_neumann(
     n_sides: np.ndarray,
     dadt: np.ndarray,
@@ -228,6 +283,7 @@ def fit_von_neumann(
     bubble_of: np.ndarray | None = None,
     n_boot: int = 0,
     seed: int = 0,
+    estimator: str = "ls",
 ) -> dict:
     """Fit ``dA/dt = K (n-6)`` and report whether K is cleanly/physically fittable.
 
@@ -254,23 +310,36 @@ def fit_von_neumann(
                 "slope_free": float("nan"), "intercept_free": float("nan"),
                 "n": int(len(x)), "n_bubbles": 0}
 
-    def _k_origin(xx, yy):
-        sxx = float(np.sum(xx * xx))
-        return float(np.sum(xx * yy) / sxx) if sxx > 0 else float("nan")
+    def _k(xx, yy, meth=estimator):
+        return k_through_origin(xx, yy, meth)
 
-    K = _k_origin(x, y)
+    K = _k(x, y)
+    K_ls = k_through_origin(x, y, "ls")
+    K_robust = k_through_origin(x, y, "robust")
+    K_theilsen = k_through_origin(x, y, "theilsen")
     # variance explained by the through-origin model, vs predicting mean(y)
     ss_res = float(np.sum((y - K * x) ** 2))
     ss_tot = float(np.sum((y - y.mean()) ** 2))
     r2_origin = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
     pear = float(np.corrcoef(x, y)[0, 1]) if np.ptp(x) > 0 and np.ptp(y) > 0 else float("nan")
     slope_free, intercept_free = (float(v) for v in np.polyfit(x, y, 1))
+    # n at which the FREE fit predicts dA/dt = 0; physics says 6 (see D2 in the audit)
+    n0_free = (6.0 - intercept_free / slope_free) if abs(slope_free) > 1e-12 else float("nan")
     K_ci = (float("nan"), float("nan"))
+    K_ls_ci = (float("nan"), float("nan"))
     if bubble_of is not None and n_boot > 0:
-        K_ci = cluster_bootstrap_ci(
-            lambda idx: _k_origin(x[idx], y[idx]), bubble_of, n_boot, seed=seed)
-    return {"K": K, "K_ci": K_ci, "pearson_r": pear, "r2_origin": r2_origin,
-            "slope_free": slope_free, "intercept_free": intercept_free,
+        K_ci = cluster_bootstrap_ci(lambda idx: _k(x[idx], y[idx]),
+                                    bubble_of, n_boot, seed=seed)
+        K_ls_ci = cluster_bootstrap_ci(lambda idx: k_through_origin(x[idx], y[idx], "ls"),
+                                       bubble_of, n_boot, seed=seed)
+    # scale of the target, so K can be reported normalised (D4)
+    med_abs = float(np.median(np.abs(y))) if len(y) else float("nan")
+    return {"K": K, "K_ci": K_ci, "estimator": estimator,
+            "K_ls": K_ls, "K_ls_ci": K_ls_ci, "K_robust": K_robust,
+            "K_theilsen": K_theilsen, "pearson_r": pear, "r2_origin": r2_origin,
+            "slope_free": slope_free, "intercept_free": intercept_free, "n0_free": n0_free,
+            "median_abs_dadt": med_abs,
+            "K_normalised": (K / med_abs) if med_abs > 0 else float("nan"),
             "n": int(len(x)), "n_bubbles": int(np.unique(bubble_of).size) if bubble_of is not None else 0}
 
 
