@@ -153,3 +153,31 @@ that von Neumann's failure is not a sampling artifact stands unchanged.**
 
 Separately, the Li mask fix moved exp10's `dist_to_edge` by +6 to +21 px in the mean, so
 even setting the clipping aside, the stratified numbers above are stale.
+
+---
+
+## ADDENDUM (2026-08-07) — the K values in this document are WITHDRAWN
+Re-measured on the repaired pipeline (`docs/exp10_replication_attempt.md`).
+
+**1. K = −1.74 (10 s) and −1.47 (30 s-subsampled) were least-squares artifacts.** Both
+reproduce exactly from the July trusted sets, confirming the re-implementation — but on
+that *same* data the leverage-resistant estimator gives **+0.0500** and **+0.0250**, with
+CIs spanning zero. A swing of 1.79 from the estimator alone. The audit
+(`docs/correctness_audit.md`) benchmarked least squares as biased −0.093 with IQR 1.04 at
+1.2% contamination; exp10's contamination is evidently worse.
+
+**2. The sampling-rate conclusion is withdrawn as UNSUPPORTED.** The claim that "von
+Neumann's failure is robust to sampling rate, which strengthens Gate 2" rested on those two
+negative K values. With both ≈ 0 there is no failure whose robustness could be
+demonstrated. This is a withdrawal, not a reversal — nothing shows von Neumann *succeeds*
+at 10 s either.
+
+**3. exp10 cannot currently be re-measured.** It fails the same physical-trend gate that
+rejected Foam C: the fragmentation guard fires at frame 234 (count 48 vs running minimum
+26, 1.85×), bubble density rises 3.5 → 12 per 1e5 foam px over frames 0–50 while the foam
+area falls, and after f260 the median bubble area collapses ~10×. ⟨n⟩ = 4.15 and the
+free-fit n₀ = 0.83–3.23 against the physical requirement of 6.
+
+The trackability and stratification results in this document are unaffected by (1) and (2)
+but inherit (3), and the earlier addendum's point about `dist_to_edge` being uninterpretable
+(23–25% border clipping) still stands.
