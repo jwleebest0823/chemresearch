@@ -18,6 +18,11 @@ dev/
 qc/
 *.tmp
 
+# Colab upload package: bulk data (frame PNGs) regenerable via build_colab_package.py
+# from gitignored data/ + committed groundtruth/. The builder script is tracked (it
+# lives at the project root, alongside label.py); this output is not.
+colab_package/
+
 # Generated CSV deliverables (data products derived from gitignored data/).
 # The format doc lives in export_csv.py (_README) and is regenerated as
 # exports/README_csv.md by the exporter.
