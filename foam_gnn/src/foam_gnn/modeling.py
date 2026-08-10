@@ -231,8 +231,16 @@ def _weighted_median(v: np.ndarray, w: np.ndarray) -> float:
     return float(v[np.searchsorted(c, 0.5 * c[-1])])
 
 
+# DECISION: 8,000 points -> an 8000x8000 pairwise matrix (512 MB), which is the
+# regime scipy's theilslopes already ran in for Foam A (n = 7,106). The cap sits just
+# ABOVE Foam A's largest fit precisely so every previously published Foam A number is
+# bit-identical; only foams whose trusted sets are larger than Foam A's (i.e. Foam C
+# under Cellpose, n = 26,712) take the subsample path.
+THEILSEN_MAX_N = 8_000
+
+
 def k_through_origin(x: np.ndarray, y: np.ndarray, method: str = "ls",
-                     min_abs_x: float = 1.0) -> float:
+                     min_abs_x: float = 1.0, *, seed: int = 0) -> float:
     """Through-origin slope of ``y`` on ``x`` by one of several estimators.
 
     ``ls``        ``sum(xy)/sum(x^2)`` — least squares; every row weighted by ``x^2``.
@@ -240,6 +248,15 @@ def k_through_origin(x: np.ndarray, y: np.ndarray, method: str = "ls",
                   per-point through-origin slopes.
     ``wrobust``   weighted median of ``y/x`` with weights ``|x|``.
     ``theilsen``  median of pairwise slopes (estimates a FREE slope; cross-check only).
+
+    # DECISION (scalability): Theil-Sen is O(n^2) in memory — scipy materialises every
+    # pairwise slope. At n = 26,712 (the Cellpose Foam C trusted set at h=1) that is
+    # 3.6e8 pairs = 2.7 GiB and it raises MemoryError. Above ``THEILSEN_MAX_N`` the
+    # points are therefore SUBSAMPLED with a fixed seed before the pairwise fit. This
+    # is safe precisely because Theil-Sen is a **cross-check**, never the primary or
+    # secondary estimator, and a median of pairwise slopes converges quickly. The cap
+    # is set well above Foam A's largest fit (n = 7,106), so every previously reported
+    # Foam A number is bit-identical — verified by the existing tests.
 
     # DECISION (D1, benchmarked in dev/estimator_bench.py against a known K=0.35):
     # with the contamination rate the audit measured (1.2% of rows being flickering
@@ -263,6 +280,11 @@ def k_through_origin(x: np.ndarray, y: np.ndarray, method: str = "ls",
         if len(x) < 3 or np.ptp(x) == 0:
             return float("nan")
         from scipy.stats import theilslopes
+        if len(x) > THEILSEN_MAX_N:      # see the DECISION note above
+            j = np.random.default_rng(seed).choice(len(x), THEILSEN_MAX_N, replace=False)
+            x, y = x[j], y[j]
+            if np.ptp(x) == 0:
+                return float("nan")
         return float(theilslopes(y, x)[0])
     m = np.abs(x) >= float(min_abs_x)
     if not m.any():

@@ -23,6 +23,17 @@ qc/
 # lives at the project root, alongside label.py); this output is not.
 colab_package/
 
+# Cellpose-SAM inference output from Colab (GPU). The label-map .npy files are 469 MB
+# and would permanently bloat git history, so they are NOT tracked; the small result
+# CSVs beside them ARE (they are the numbers docs/cellpose_replication.md cites).
+#
+# WARNING, unlike everything else ignored here: these masks are NOT regenerable on this
+# machine. CPU inference measures ~64 min/frame (docs/learned_detector_cellpose.md), so
+# reproducing them means re-running the Colab GPU notebook against colab_package/.
+# KEEP A BACKUP OUTSIDE GIT (Drive, or Git LFS / a release asset if they must be
+# versioned).
+cellpose_out/masks_*/
+
 # Generated CSV deliverables (data products derived from gitignored data/).
 # The format doc lives in export_csv.py (_README) and is regenerated as
 # exports/README_csv.md by the exporter.
