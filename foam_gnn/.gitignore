@@ -23,6 +23,12 @@ qc/
 # lives at the project root, alongside label.py); this output is not.
 colab_package/
 
+# v2: full exp1 + full exp10, regenerable via build_colab_package_v2.py. Same
+# reasoning as colab_package/ above -- script tracked, bulk PNG output is not. If the
+# package is later split (see build_colab_package_v2.py's README note on exp10 size),
+# any colab_package_v2_*/ split directories are covered by the same glob.
+colab_package_v2*/
+
 # Cellpose-SAM inference output from Colab (GPU). The label-map .npy files are 469 MB
 # and would permanently bloat git history, so they are NOT tracked; the small result
 # CSVs beside them ARE (they are the numbers docs/cellpose_replication.md cites).
