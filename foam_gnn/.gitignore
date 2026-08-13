@@ -40,6 +40,11 @@ colab_package_v2*/
 # versioned).
 cellpose_out/masks_*/
 
+# v2 Cellpose run (full exp1 + exp10 sequences, 3.5 GB of label maps). Same reasoning
+# and the same warning as above: the mask binaries are NOT tracked, the small summary
+# CSVs beside them ARE, and these masks are NOT regenerable on this machine.
+cellpose_results_v2/**/masks_*/
+
 # Generated CSV deliverables (data products derived from gitignored data/).
 # The format doc lives in export_csv.py (_README) and is regenerated as
 # exports/README_csv.md by the exporter.
