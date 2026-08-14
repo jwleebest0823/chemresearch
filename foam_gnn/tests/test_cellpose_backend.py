@@ -138,3 +138,51 @@ def test_other_estimators_are_untouched_by_the_cap():
     y = 0.4 * x
     assert k_through_origin(x, y, "ls") == pytest.approx(0.4, abs=1e-9)
     assert k_through_origin(x, y, "robust") == pytest.approx(0.4, abs=1e-9)
+
+
+# --------------------------------------------------------------------------- #
+# expand_to_foam_mask — structural safety (implemented but rejected; see
+# docs/tiling_gap_investigation.md). The guarantee under test is the one the
+# design required: a marker's basin always separates two non-neighbours.
+# --------------------------------------------------------------------------- #
+def test_expansion_cannot_bridge_across_an_intervening_bubble():
+    """Three labels in a row 1 | 2 | 3 with gaps: expanding must never make 1 and 3
+    adjacent, because 2's basin lies between them."""
+    from foam_gnn.cellpose_backend import expand_to_foam_mask
+    from foam_gnn.tracking import _adjacency_lengths
+
+    labels = np.zeros((40, 90), np.int32)
+    labels[10:30, 5:20] = 1
+    labels[10:30, 38:52] = 2
+    labels[10:30, 70:85] = 3
+    foam = np.zeros((40, 90), bool)
+    foam[5:35, 0:90] = True
+    out, _info = expand_to_foam_mask(labels, foam, tight_dilate_px=30)
+    adj = _adjacency_lengths(out)
+    assert frozenset((1, 3)) not in adj, "expansion bridged across an intervening bubble"
+    assert frozenset((1, 2)) in adj and frozenset((2, 3)) in adj
+
+
+def test_expansion_never_leaves_the_foam_mask():
+    from foam_gnn.cellpose_backend import expand_to_foam_mask
+
+    labels = np.zeros((30, 30), np.int32)
+    labels[12:18, 12:18] = 1
+    foam = np.zeros((30, 30), bool)
+    foam[8:22, 8:22] = True
+    out, _info = expand_to_foam_mask(labels, foam, tight_dilate_px=20)
+    assert not (out > 0)[~foam].any(), "expansion escaped the foam mask"
+
+
+def test_expansion_only_grows_and_preserves_label_count():
+    from foam_gnn.cellpose_backend import expand_to_foam_mask
+
+    labels = np.zeros((40, 40), np.int32)
+    labels[10:16, 10:16] = 1
+    labels[24:30, 24:30] = 2
+    foam = np.ones((40, 40), bool)
+    out, info = expand_to_foam_mask(labels, foam, tight_dilate_px=10)
+    assert info["n_out"] == info["n_in"] == 2
+    assert info["area_after"] >= info["area_before"]
+    for i in (1, 2):                       # every original pixel keeps its own label
+        assert (out[labels == i] == i).all()

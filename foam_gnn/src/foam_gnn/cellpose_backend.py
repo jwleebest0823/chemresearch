@@ -222,6 +222,72 @@ def restrict_to_foam_mask(
 
 
 # --------------------------------------------------------------------------- #
+# Tiling expansion — IMPLEMENTED, MEASURED, AND NOT RECOMMENDED (see the DECISION)
+# --------------------------------------------------------------------------- #
+def expand_to_foam_mask(
+    labels: np.ndarray,
+    foam_mask: np.ndarray,
+    elevation: np.ndarray | None = None,
+    *,
+    tight_dilate_px: int = 5,
+) -> tuple[np.ndarray, dict]:
+    """Flood Cellpose instances outward until they tile the foam interior.
+
+    Cellpose instances are used as watershed **markers** and the unlabelled interior is
+    flooded to the nearest basin over ``elevation`` (the Sato film-ridge map when
+    supplied, so boundaries snap to real films rather than expanding blindly). The
+    flood is confined to a tight hull of the instances themselves, so labels are never
+    pushed out into the background rim.
+
+    **Structural safety, not a tuned distance:** watershed-from-markers assigns every
+    masked pixel to exactly one marker's basin, so an intervening labelled bubble always
+    separates two non-neighbours — the same guarantee `adjacency_lengths_bridged` has,
+    and stronger, because the basin boundary follows the film ridge.
+
+    # DECISION — THIS IS IMPLEMENTED BUT DELIBERATELY NOT USED BY THE PIPELINE.
+    # It was built to close the apparent <n> gap between Cellpose (5.03) and the
+    # watershed (5.84). Measured against the hand-labelled ground truth, that gap is
+    # NOT a Cellpose defect and this expansion makes accuracy worse:
+    #   * the GT itself leaves 25.1% of the foam interior unlabelled (Cellpose 21.6%,
+    #     watershed 12.4%) -- real foam interior is ~1/4 film and Plateau border, and a
+    #     human labeller marks it as such. The watershed's low figure is the anomaly.
+    #   * <n> measured on GT is 5.06 (all) / 5.62 (interior). Cellpose gives 5.10 /
+    #     5.77 -- within +0.03 / +0.15 of truth. The watershed gives 5.67 / 5.71, i.e.
+    #     it OVER-counts by +0.60 at the population level, all of it from edge bubbles
+    #     whose flooded rims touch spuriously.
+    #   * Cellpose bubbles are already 1.069x the area of their matched GT bubbles, so
+    #     expanding them further moves areas away from truth -- and area feeds dA/dt.
+    # See docs/tiling_gap_investigation.md. Kept in the codebase because the
+    # measurement that rejected it is worth being able to reproduce.
+
+    Returns ``(labels_out int32 (H, W), info)``.
+    """
+    check_array("expand.labels", labels, ndim=2, nonneg=True)
+    if foam_mask.shape != labels.shape:
+        raise ValueError(f"foam_mask {foam_mask.shape} != labels {labels.shape}")
+    from skimage.segmentation import watershed
+
+    lab = np.asarray(labels, dtype=np.int32)
+    if lab.max() == 0:
+        return lab.copy(), {"n_in": 0, "n_out": 0, "area_before": 0, "area_after": 0}
+
+    hull = ndi.binary_fill_holes(
+        ndi.binary_dilation(lab > 0, iterations=int(tight_dilate_px)))
+    mask = np.asarray(foam_mask, dtype=bool) & hull
+    elev = np.zeros(lab.shape, dtype=np.float32) if elevation is None \
+        else np.asarray(elevation, dtype=np.float32)
+    out = watershed(elev, markers=lab, mask=mask).astype(np.int32)
+
+    inside = mask
+    return out, {
+        "n_in": int(lab.max()), "n_out": int(out.max()),
+        "area_before": int((lab > 0).sum()), "area_after": int((out > 0).sum()),
+        "unlabelled_before": float(((lab == 0) & inside).sum() / max(inside.sum(), 1)),
+        "unlabelled_after": float(((out == 0) & inside).sum() / max(inside.sum(), 1)),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Adapter to the Module-1 contract
 # --------------------------------------------------------------------------- #
 def build_cellpose_results(

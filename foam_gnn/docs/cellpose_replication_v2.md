@@ -136,6 +136,20 @@ All three foams pass the physical gates under Cellpose:
 
 ### The n under-count is a DETECTOR property, not a Foam C property
 
+> **RETRACTED 2026-08-14 — see `docs/tiling_gap_investigation.md`.** This section is
+> correct that the ⟨n⟩ difference tracks the detector rather than the foam, but wrong
+> about **which detector is right**. Measured against the 14 GT masks: GT ⟨n⟩ = 5.08
+> (population) / 5.66 (interior); **Cellpose = 5.11 / 5.76, i.e. +0.03 from truth**;
+> the **watershed = 5.67 / 5.71, i.e. +0.60 too high** at the population level, from
+> spurious edge contacts. The GT itself leaves **25.3%** of the foam interior
+> unlabelled — more than Cellpose's 20.9% — so a quarter of foam interior genuinely is
+> film and Plateau border, and the watershed's 12.4% is the anomaly.
+>
+> Consequently **⟨n⟩ → 6 was never an attainable target on these finite rafts** (~32%
+> of bubbles sit on a free perimeter with ⟨n⟩ ≈ 4), and the paragraph below beginning
+> "Consequence for Task 4" has the sign of the bias backwards: Cellpose's K is the
+> better-grounded number and the watershed's +0.483 is the one more likely inflated.
+
 This was the question the brief flagged as important, and the answer is unambiguous.
 Foam A run0, **same foam, same frames**, only the detector swapped:
 
@@ -272,8 +286,12 @@ beats persistence on foam Y" is a much weaker statement when X's K is smaller th
   clipping warning (21–28% of the image border covered), so the distance transform
   measures distance to the *frame*, not to the evaporation edge. K does not use it, but
   it **is** an MLP/GNN input feature, so Foam F's Gate 3 cells inherit the caveat.
-* **The n under-count is unrepaired** and biases every Cellpose K downward, more so for
-  foams with more unlabelled interior.
+* ~~**The n under-count is unrepaired** and biases every Cellpose K downward, more so
+  for foams with more unlabelled interior.~~ **RETRACTED** — GT shows Cellpose's ⟨n⟩ is
+  correct to +0.03 and the watershed's is +0.60 too high
+  (`docs/tiling_gap_investigation.md`). Foam F's 48.2% unlabelled is still roughly
+  double the GT figure, so Foam F plausibly has genuine **under-detection** — a
+  different defect, not repairable by tiling.
 * Foam F rests on **56 bubbles**; its CIs are wide and its n₀ is 2.7–3.3.
 
 ## Reproducing
