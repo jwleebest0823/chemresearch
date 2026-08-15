@@ -79,3 +79,52 @@ A swap needs four stable identities simultaneously. Foams C and F were rejected 
 analysis on identity churn (632 and 271 spurious identities;
 `docs/topological_event_prediction.md`), so their T1 counts are blocked on the tracker,
 not on this detector. Not forced.
+
+---
+
+## Verification tooling (session 2) — figures that can actually be scored
+
+The first verification attempt failed because it showed only *t* and *t+1* on a crop
+containing ~20 bystanders. **A one-frame flicker and a genuine swap are identical over two
+frames**, so that figure could not answer its own question.
+
+`dev/t1_verify_render.py` rebuilds it around that failure:
+
+* **`t−1, t, t+1, t+2` as a strip.** The discriminating panel is the last one — a real
+  swap's new contact *persists and grows*; a flicker's disappears.
+* **Tight per-cluster crop**, `# DECISION` scale-adaptive: union bounding box of the four
+  bubbles over all four frames, padded by 0.35 × the box diagonal, floor 25 px.
+* **Colour by ROLE, not by label id** (`# DECISION`): P/Q warm (the pair that separates),
+  R/S cool (the pair that joins), each a fixed colour held across all four panels so
+  identity is eye-trackable. Everything else stays grey. Colouring by id would change
+  between events and defeat the purpose.
+* **The claimed edges drawn explicitly** between centroids — solid when the shared border
+  clears `t1_min_border_px`, faint dotted when not — so the topological claim is visible
+  rather than inferred.
+* Border-length series for P–Q and R–S printed per panel and in the caption.
+
+**Count correction.** The shipped tracker emits **22** T1 events on Foam A (17 in run0,
+5 in run1), not the 24 quoted earlier. The 24 came from the diagnostic sweep, which did
+not apply the `t1_confirm_frames` look-ahead that the shipped detector does. 22 is the
+correct figure; the earlier number is superseded.
+
+**Worked example (candidate #001, f004):** P–Q border runs `[16, 0, 0, 0]` px while R–S
+runs `[0, 12, 30, 34]` px — the old contact breaks, the new one forms and then *grows*
+over the following two frames. That is textbook T1 behaviour and is exactly the signature
+the two-frame figure could not show.
+
+**Also rendered: the events that exist only at looser thresholds** (`extra_mb3`,
+`extra_mb1`, 16 sampled) into `looser_threshold_extras/`, clearly marked as NOT shipped.
+If those score as genuine, the conservative threshold is costing real recall — a question
+worth settling with evidence rather than by assuming the shipped setting is right.
+
+**Scoring is deliberately not automated.** `qc/t1_verify/scoring.csv` carries the event
+metadata and empty `verdict` / `notes` columns, with the criteria fixed in a header
+comment so they cannot drift during scoring. `dev/t1_score_analyze.py` **refuses to run**
+while any verdict is blank, keeps `unclear` out of the false-positive rate rather than
+folding it into either bucket, and reports the rate with a Wilson interval plus — only
+on verified-real shipped events — T1 rate versus time and swap-involvement versus bubble
+size with cluster-bootstrap CIs.
+
+**Until the sheet is scored, 22 remains a corrected detector output, not a physical
+measurement, and the T1 rate is not publishable.**

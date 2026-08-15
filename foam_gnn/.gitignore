@@ -17,6 +17,10 @@ wandb/
 dev/
 qc/
 *.tmp
+# (qc/ already covers the rendered T1 verification PNGs and the scoring sheet; they
+#  regenerate from dev/t1_verify_render.py. The SCORED sheet, once filled in, is a
+#  hand-made research artifact -- copy it to groundtruth/ or commit it explicitly with
+#  `git add -f` if it is to be preserved.)
 
 # Colab upload package: bulk data (frame PNGs) regenerable via build_colab_package.py
 # from gitignored data/ + committed groundtruth/. The builder script is tracked (it
