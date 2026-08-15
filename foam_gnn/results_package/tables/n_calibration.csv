@@ -1,0 +1,4 @@
+source,mean_n_all,mean_n_interior,unlabelled_interior_pct
+hand-labelled GT,5.08,5.66,25.3
+Cellpose,5.11,5.76,20.9
+watershed,5.67,5.71,12.4

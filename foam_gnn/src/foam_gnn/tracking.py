@@ -792,7 +792,31 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
     clusters = []
 
     # ── T1 detection (second pass: needs adjacency + look-ahead confirm) ──── #
-    adj_per_frame = [_adjacency_lengths(m) for m in id_maps]
+    # DECISION (T1 famine, docs/t1_investigation.md): use the SAME gap-bridged
+    # adjacency `graph.py` uses. This pass was left on the raw `_adjacency_lengths`
+    # when D2 introduced bridging, so T1s were being sought on a neighbour graph
+    # known to under-count edges (<n> 4.48 vs 5.93 on the watershed; 21-25% of the
+    # foam interior is unlabelled under Cellpose). A T1 requires EIGHT edge
+    # conditions to resolve at once, so a modest per-edge miss rate collapses T1
+    # recall almost to zero -- measured: 1 swap in 198 Foam A frames before,
+    # 24 after, from a 1.18x change in edge count alone.
+    #
+    # This is a CONSISTENCY FIX, not a threshold relaxation: bridging is the
+    # already-validated D2 repair (structurally safe -- background goes to its
+    # NEAREST label, so an intervening bubble always blocks) and `t1_min_border_px`
+    # is left untouched at its shipped value. Loosening that threshold as well was
+    # measured (35 swaps at mb=3, 60 at mb=1) and deliberately NOT shipped, because
+    # it could not be validated by hand within this session.
+    _t1_bridge = [
+        bridge_distance_px(m, cfg.graph.bridge_radius_frac,
+                           cfg.graph.bridge_gap_quantile,
+                           inside=(r.dist_to_edge > 0))
+        if getattr(cfg.graph, "bridge_gaps", "off") == "on" else 0.0
+        for m, r in zip(id_maps, results)
+    ]
+    adj_per_frame = [adjacency_lengths_bridged(m, b, inside=(r.dist_to_edge > 0))
+                     if b > 0 else _adjacency_lengths(m)
+                     for m, b, r in zip(id_maps, _t1_bridge, results)]
     present_per_frame = [set(np.unique(m)) - {0} for m in id_maps]
     mb = tcfg.t1_min_border_px
     for t in range(1, len(id_maps)):
