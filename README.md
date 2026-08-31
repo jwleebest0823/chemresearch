@@ -98,6 +98,15 @@ research artifacts.
 
 ---
 
+## Contributing
+
+This is the **canonical** repository. It carries the full history of the earlier
+`jwleebest0823/chemresearch`, which is kept for reference only.
+
+Clone this repository directly, branch, and open a PR against `main`. To bring work over
+from the legacy repository — including after it is archived — see
+[`SYNCING.md`](SYNCING.md).
+
 ## Repository conventions
 
 - Code comments and commit messages in English; Conventional Commits (`feat:`, `fix:`,
