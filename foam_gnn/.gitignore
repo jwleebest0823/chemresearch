@@ -1,0 +1,78 @@
+# --- foam_gnn (self-contained) ---
+
+# Datasets are loaded from a configurable directory at runtime; never commit raw data.
+# (The 5 small sample frames under tests/fixtures/ ARE committed on purpose, for smoke tests.)
+data/
+!tests/fixtures/
+!tests/fixtures/**
+
+# Training artifacts
+checkpoints/
+runs/
+*.pt
+*.ckpt
+wandb/
+
+# Scratch / QC outputs
+dev/
+qc/
+*.tmp
+# (qc/ already covers the rendered T1 verification PNGs and the scoring sheet; they
+#  regenerate from dev/t1_verify_render.py. The SCORED sheet, once filled in, is a
+#  hand-made research artifact -- copy it to groundtruth/ or commit it explicitly with
+#  `git add -f` if it is to be preserved.)
+
+# Colab upload package: bulk data (frame PNGs) regenerable via build_colab_package.py
+# from gitignored data/ + committed groundtruth/. The builder script is tracked (it
+# lives at the project root, alongside label.py); this output is not.
+colab_package/
+
+# v2: full exp1 + full exp10, regenerable via build_colab_package_v2.py. Same
+# reasoning as colab_package/ above -- script tracked, bulk PNG output is not. If the
+# package is later split (see build_colab_package_v2.py's README note on exp10 size),
+# any colab_package_v2_*/ split directories are covered by the same glob.
+colab_package_v2*/
+
+# Cellpose-SAM inference output from Colab (GPU). The label-map .npy files are 469 MB
+# and would permanently bloat git history, so they are NOT tracked; the small result
+# CSVs beside them ARE (they are the numbers docs/cellpose_replication.md cites).
+#
+# WARNING, unlike everything else ignored here: these masks are NOT regenerable on this
+# machine. CPU inference measures ~64 min/frame (docs/learned_detector_cellpose.md), so
+# reproducing them means re-running the Colab GPU notebook against colab_package/.
+# KEEP A BACKUP OUTSIDE GIT (Drive, or Git LFS / a release asset if they must be
+# versioned).
+cellpose_out/masks_*/
+
+# v2 Cellpose run (full exp1 + exp10 sequences, 3.5 GB of label maps). Same reasoning
+# and the same warning as above: the mask binaries are NOT tracked, the small summary
+# CSVs beside them ARE, and these masks are NOT regenerable on this machine.
+cellpose_results_v2/**/masks_*/
+
+# Generated CSV deliverables (data products derived from gitignored data/).
+# The format doc lives in export_csv.py (_README) and is regenerated as
+# exports/README_csv.md by the exporter.
+exports/
+
+# Ground-truth labeling: tolabel/ (raw frame exports) and preseed/ (cached automatic
+# pre-seed segmentations) are both REGENERABLE from gitignored data/ (dev/export_
+# label_frames.py, dev/preseed_labels.py). The hand-corrected labels themselves
+# (groundtruth/<set>/<exp>/*.png) + manifest.csv (provenance) ARE committed — they
+# are the actual research artifact and its audit trail.
+groundtruth/tolabel/
+groundtruth/preseed/
+groundtruth/manifest_template.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/

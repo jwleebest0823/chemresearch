@@ -1,0 +1,14 @@
+{
+  "counts_by_set": {
+    "extra_mb1": {
+      "real": 8
+    },
+    "extra_mb3": {
+      "real": 8
+    },
+    "shipped_mb5": {
+      "real": 22
+    }
+  },
+  "n_verified_real_shipped": 22
+}
