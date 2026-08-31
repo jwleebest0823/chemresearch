@@ -8,6 +8,57 @@ a **quasi-2D evaporating soap foam** (brightfield microscopy, ~30 s/frame).
 
 ---
 
+## Results — start here
+
+The pipeline has been run end to end and the findings are written up for review. Read
+these before the sections below, which are reference material on how the pipeline works.
+
+| Document | Covers |
+|---|---|
+| [`results_package/SUMMARY.md`](results_package/SUMMARY.md) | Main results: von Neumann's law across three foams, the five measurement artifacts, ground-truth validation, limitations |
+| [`results_package/METHODS_BRIEF.md`](results_package/METHODS_BRIEF.md) | Methods behind those numbers |
+| [`results_package_extra/T1_ADDENDUM.md`](results_package_extra/T1_ADDENDUM.md) | Neighbour-swap (T1) detection and its hand-validation |
+
+**Headline.** Von Neumann's law (`dA/dt = K(n − 6)`) **holds on all three usable foams
+under a single detector**: K is positive with its 95% CI clear of zero in all nine
+foam × horizon cells, and on Foam A K varies by only 1.02× across a twentyfold change in
+prediction horizon.
+
+**The part worth publishing is why it looked like it failed.** Five measurement artifacts
+each faked a failure — a propagation ratchet, Plateau borders counted as bubbles, a
+foam-mask threshold cliff, leverage (1.2% of measurements carrying 48% of the fit weight
+and flipping K's sign), and a model trained on data that had since been rejected. One of
+them produced K = −1.74. All five were caught by checks that did not depend on the answer
+coming out right. See `docs/correctness_audit.md` and `results_package/SUMMARY.md` §2.
+
+**Detector accuracy against 14 hand-labelled Foam A frames (~1,000 bubbles):** Cellpose
+F1 **0.966** (precision 0.989, recall 0.945) vs. the tuned watershed's **0.903**. Cellpose
+reproduces the hand-labelled mean neighbour count to within 0.03; the watershed
+over-counts by 0.60, all of it at the raft edge. The ground truth's own population mean is
+**⟨n⟩ = 5.08** — so the familiar `⟨n⟩ → 6` (Euler's theorem for an *infinite* tiling) is
+the wrong success criterion for a finite raft with a free perimeter, and an earlier claim
+of ours that used it has been retracted.
+
+**Neighbour swaps (T1).** The pipeline was finding 1 swap in 198 frames — implausible.
+Cause was an internal inconsistency (the swap search used a neighbour graph without the
+gap-bridging repair applied everywhere else); fixing it raised detection 24×. All 22
+shipped events were then **hand-scored one at a time against four-panel figures: 0 flicker,
+0 unclear, 22 confirmed, false-positive rate 0/22, 95% CI [0%, 14.9%]**.
+
+**The neural network does not beat physics.** Across nine held-out-foam cells the graph
+network never beat the best simple baseline and was significantly worse in seven; the von
+Neumann law was the best model in eight of nine. Reading: for this target `n` appears to
+be a sufficient statistic for the graph structure, so topology is redundant by
+construction.
+
+**A methodological warning that generalises.** A clean count curve does not imply a clean
+identity stream: all three foams lose bubbles smoothly (ρ = −0.995 to −0.9993) and pass
+the fragmentation guard, yet Foam F creates **271 new identities from 62 starting
+bubbles**. Count-based checks verify how many objects exist, never whether they are the
+same objects.
+
+---
+
 ## Scientific context
 
 A soap foam confined between two glass slides loses liquid **only by evaporation
@@ -113,18 +164,34 @@ just imports `foam_gnn`; all real logic lives in `src/`.
 ```
 foam_gnn/
 ├── src/foam_gnn/
-│   ├── config.py        # all tunables (single source of truth)
-│   ├── guards.py        # shape/dtype/NaN validators (fail loud)
-│   ├── io_utils.py      # frame discovery + loading
-│   ├── segmentation.py  # MODULE 1 (implemented)
-│   └── models/          # MODULE 4 (planned)
-├── tests/
-│   ├── fixtures/samples/ # 5 representative frames (committed for smoke tests)
-│   └── test_segmentation.py
-├── notebooks/           # thin Colab runner (planned)
-├── scripts/             # CLI entry points (planned)
+│   ├── config.py            # all tunables (single source of truth)
+│   ├── guards.py            # shape/dtype/NaN validators (fail loud)
+│   ├── io_utils.py          # frame discovery + loading
+│   ├── dataset.py           # foam/session structure; source of truth for CV folds
+│   ├── segmentation.py      # MODULE 1 — watershed backend
+│   ├── cellpose_backend.py  # MODULE 1 — Cellpose backend (loads Colab-GPU masks)
+│   ├── seg_eval.py  seg_temporal.py  gt_preseed.py   # detector scoring vs. ground truth
+│   ├── tracking.py  propagate.py                     # MODULE 2 — identities, T1/T2
+│   ├── stability.py  radial.py                       # trusted subset + radial test
+│   ├── graph.py  export_csv.py                       # MODULE 3 — graphs, CSV export
+│   └── modeling.py  gnn.py  nn_models.py             # MODULES 4–6 — gates, baselines, GNN
+├── tests/                   # 16 files, 164 test functions
+│   └── fixtures/samples/    # 5 representative frames (committed for smoke tests)
+├── groundtruth/             # hand-corrected labels + manifest.csv (research artifact)
+├── cellpose_out/            # v1 Cellpose result CSVs (mask binaries gitignored)
+├── cellpose_results_v2/     # v2 run: full exp1 + exp10 result CSVs
+├── docs/                    # running lab notebook, incl. negative/retracted results
+├── results_package/         # SUMMARY + METHODS_BRIEF + figures/ + tables/
+├── results_package_extra/   # T1 addendum + its figures/ + tables/
+├── label.py                 # ground-truth labelling helper
+├── build_colab_package.py     build_colab_package_v2.py   build_results_package.py
 ├── pyproject.toml  requirements.txt  requirements-colab.txt
 ```
+
+`docs/` is kept complete on purpose. Several documents record results that were later
+**retracted or superseded** (`modeling_stage1..3_gate*.md`, `cellpose_replication.md`,
+`exp10_replication_attempt.md`). They are the audit trail for the five corrections
+described above and should not be deleted.
 
 ---
 
@@ -187,7 +254,25 @@ torch needed for the base path). Long-format `nodes.csv` / `edges.csv` export
 disappear/coalesce classifier, a `event_confidence` flag, and a `README_csv.md`
 that carries the **preliminary-event** caveat with the data.
 
-**Tested** (90 passing, 1 skipped without the PyG extra): Module-1 smoke tests;
+**Implemented (Module 1 — second detector: Cellpose).** `cellpose_backend.py` loads
+Cellpose-SAM label maps produced on Colab GPU (CPU inference measures ~64 min/frame, so
+it is not run locally) behind the same segmenter interface as the watershed.
+`seg_eval.py` / `gt_preseed.py` score any detector against the hand labels. Cellpose is
+the detector all headline numbers use — it removed the detection bottleneck that had
+rejected Foam C and made a same-detector cross-foam comparison possible for the first
+time. See `docs/learned_detector_cellpose.md`, `docs/cellpose_replication_v2.md`.
+
+**Implemented (Modules 4–6 — modelling and the gated model ladder).** `modeling.py` runs
+the pre-registered gate sequence (target + trivial baselines → von Neumann fit → MLP
+precondition → GNN), `nn_models.py` the no-graph baselines and `gnn.py` the graph network,
+all under leave-one-foam-out with cluster-bootstrap CIs. **The gates were re-run twice
+after the correctness audit** (`docs/modeling_gates_v2.md`, `gates_v3_stability.md`,
+`gates_v4_repairs.md`); the earlier `docs/modeling_stage1..3_gate*.md` conclusions —
+including a "GNN beats physics at long horizon" result — are **retracted**. Current
+outcome: von Neumann is the best model in eight of nine cells and the GNN never wins.
+
+**Tested** (16 files, 164 test functions; real-data tests skip when `data/` is absent,
+and the PyG-dependent test skips without the `ml` extra): Module-1 smoke tests;
 dataset logic (LOFO for 4 foams, timestamp parsing, run-splitting, exp2-removal
 tolerance); tracking contract + deterministic T1 **and merge** unit tests
 (keep_larger survivor, no-birth, per-frame ID uniqueness on a 50/50 split, max-rule
@@ -229,6 +314,28 @@ frames.
   Foam A (40 frames) + one Foam C session. **`track_sequence` is slow on dense
   full sessions** (recomputes per-bubble masks each frame, O(labels·pixels)) — fine
   for the demo, but the full multi-session batch needs a vectorized rewrite.
+
+**Resolved since the list above was written:**
+- **T1 swaps are no longer unverified.** All 22 shipped events were hand-scored:
+  0 flicker, 0 unclear, **false-positive rate 0/22, 95% CI [0%, 14.9%]**
+  (`results_package_extra/T1_ADDENDUM.md`). The earlier two-panel verification attempt
+  was inconclusive because a real swap and a one-frame glitch are indistinguishable over
+  two frames; four panels separate them.
+- **Detection accuracy is now measured**, not assumed — and the measurement reversed our
+  prior belief that the watershed's higher ⟨n⟩ was the accurate one (§ Results).
+
+**Open, as of the latest results package:**
+- **Only Foam A has usable ground truth.** Foam C's labels were made by deleting from the
+  watershed's own output, so they cannot fairly score a different detector; Foam C and F
+  detection accuracy is unmeasured.
+- **Foam F is weak** — 56 bubbles, wide CIs, ~48% of its interior unlabelled, and its
+  distance-to-edge measure is uninterpretable because the foam extends past the field of
+  view. Reported, not weighted equally.
+- **Event labels remain usable on Foam A only.** Coalescence and swap analysis on Foams C
+  and F is blocked on the tracker, not the detector.
+- **The shipped T1 contact-length threshold may be too strict.** The 16 events that appear
+  only when it is relaxed scored 0/16 flicker, suggesting lost recall. Deliberately *not*
+  changed yet — flagged as an open question, and no reported swap rate uses them.
 
 This project deliberately **fails loud**: bad shapes/dtypes/NaNs raise immediately
 rather than silently producing garbage.

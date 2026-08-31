@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Alabama Environmental Monitoring">
+  <rect width="32" height="32" rx="7" fill="#0f766e"/>
+  <!-- three bubbles: the foam/monitoring motif shared by the dashboard and foam_gnn -->
+  <circle cx="12" cy="13" r="5.5" fill="none" stroke="#5eead4" stroke-width="1.8"/>
+  <circle cx="21" cy="11" r="3.8" fill="none" stroke="#5eead4" stroke-width="1.8"/>
+  <circle cx="18.5" cy="21" r="4.6" fill="none" stroke="#99f6e4" stroke-width="1.8"/>
+</svg>
