@@ -11,30 +11,35 @@ Prepared for Dr. Oh. Every number here traces to a table in `tables/` or a figur
 a bubble with more than six neighbours grows and one with fewer shrinks:
 `dA/dt = K·(n − 6)`, with K positive.
 
-| foam | t+1 | t+5 | t+20 | variation across horizons | beats "no change" out-of-sample |
+Horizons are given in **seconds of elapsed time**, matched across foams. Foams A and C
+are imaged at 30 s/frame, Foam F at 10 s/frame, so a horizon quoted in *frames* would
+mean a different physical timespan in each foam.
+
+| foam | 30 s | 150 s | 600 s | variation across horizons | beats "no change" out-of-sample |
 |---|---|---|---|---|---|
 | **A** (exp1) | **+0.367** [0.333, 0.400] | **+0.364** [0.333, 0.393] | **+0.358** [0.327, 0.398] | **1.02×** | **6 of 6 folds** |
 | **C** (exp3) | **+0.178** [0.167, 0.189] | **+0.180** [0.170, 0.193] | **+0.193** [0.180, 0.206] | 1.09× | 3 of 6 |
-| **F** (exp10) | **+0.633** [0.400, 0.850] | **+0.540** [0.313, 0.777] | **+0.458** [0.182, 0.815] | 1.38× | 3 of 6 |
+| **F** (exp10) | **+0.600** [0.400, 0.867] | **+0.490** [0.237, 0.805] | **+0.376** [0.105, 0.803] | 1.59× | 3 of 6 |
 
 Brackets are 95% confidence intervals from a bootstrap that resamples whole bubbles
 (not individual measurements), so within-bubble correlation cannot inflate significance.
 **K is positive with the interval clear of zero in all nine cells.** → `figures/fig1_K_vs_horizon.png`, `tables/K_fits.csv`
 
-Foam A's K changes by only **2% across a twentyfold change in prediction horizon**. A
-quantity that stable across timescales is behaving like a physical constant.
+Foam A's K changes by only **2% across a twentyfold change in prediction horizon**
+(30 s to 600 s). A quantity that stable across timescales is behaving like a physical
+constant.
 
 **The foams disagree on K's size, and most of that disagreement is explained.** Raw, Foam
 A looked 2.7× Foam C. Two corrections account for nearly all of it:
 
 | horizon | raw gap | after matching the detector | after also normalising by coarsening rate |
 |---|---|---|---|
-| t+1 | 2.72× | 2.06× | **1.31×** |
-| t+5 | 2.76× | 2.02× | **1.18×** |
-| t+20 | 2.59× | 1.85× | **0.98×** |
+| 30 s | 2.72× | 2.06× | **1.31×** |
+| 150 s | 2.76× | 2.02× | **1.18×** |
+| 600 s | 2.59× | 1.85× | **0.98×** |
 
 The detector accounts for 38–46%, the coarsening-rate normalisation a further 44–55% —
-**82–101% together, and at t+20 Foams A and C agree to within 2%.** The remaining
+**82–101% together, and at 600 s Foams A and C agree to within 2%.** The remaining
 difference is Foam F, which is also our least reliable foam (§5).
 
 ---
@@ -137,7 +142,9 @@ people report.
   baseline at predicting something the baseline's one feature already determines.
 * **Event labels are usable on Foam A only** (§4). Coalescence and neighbour-swap analysis
   on Foams C and F is blocked on the tracker, not the detector.
-* **T1 swaps (§below) are now detected but not yet hand-verified.**
+* **T1 swaps are detected and hand-verified (0/22 false positives), but the swap
+  RATE is not statistically resolved** — 22 events across six time bins, several holding
+  0–2 events. See the T1 addendum package.
 
 ## Task-1 addendum: the missing neighbour swaps
 
@@ -149,21 +156,16 @@ in 198 frames** — implausible, and a reviewer would ask immediately.
 edges. A swap requires eight edge conditions to resolve simultaneously, so a modest
 per-edge miss rate collapses swap detection almost to zero. Restoring consistency:
 
-| setting | T1 swaps found (Foam A, 198 frames) |
-|---|---|
-| as shipped (unbridged graph) | **1** |
-| **bridged graph, thresholds unchanged (now shipped)** | **24** |
-| bridged, border threshold relaxed to 3 px | 35 *(measured, not shipped)* |
-| bridged, relaxed to 1 px | 60 *(measured, not shipped)* |
-
-→ `figures/fig5_t1_counts.png`, `tables/t1_counts.csv`
-
+Restoring consistency raised the count from **1 to 22 swaps** in the same 198 frames.
 **What is shipped is the consistency fix only** — using the same neighbour graph the rest
-of the pipeline uses. The threshold relaxations were measured and deliberately **not**
-adopted, because they could not be verified by hand within this session.
+of the pipeline uses. Loosening the contact-length threshold as well would raise the
+count further, but was measured and deliberately **not** adopted.
 
-**Caveat, stated plainly: the 24 swaps are not yet hand-verified.** Candidate overlays
-were rendered (`figures/fig7_t1_candidates_foamA.png`) but at the rendering quality
-achieved they are not sharp enough to confirm individual events by eye. A false-positive
-rate is therefore **not yet established**, and the T1 rate should not go in a paper until
-it is. This is the clearest next task.
+**All 22 were then verified by hand**, one at a time, against four-panel figures spanning
+the frame before the swap, the swap, and two frames after — the fourth panel is what
+separates a real swap from a momentary segmentation glitch, since the two are identical
+over only two frames. **Result: 0 flicker, 0 unclear, false-positive rate 0/22, 95%
+confidence interval [0%, 14.9%].** → `figures/fig5_verified_T1_swap.png`
+
+Full detail, including the swap rate over time and an open question about whether the
+shipped threshold is excluding genuine swaps, is in the separate T1 addendum package.

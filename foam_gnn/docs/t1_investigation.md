@@ -2,7 +2,7 @@
 
 **Verdict: detector artifact.** The pipeline found **1 neighbour swap in 198 Foam A
 frames**, which foam physics says is implausible. The cause is a specific inconsistency
-introduced when the D2 repair landed, and fixing it yields **24** swaps from the same
+introduced when the D2 repair landed, and fixing it yields **22** swaps from the same
 frames with no threshold changed.
 
 ## The cause
@@ -27,11 +27,11 @@ to zero.
 | setting | mean edges/frame | T1 swaps |
 |---|---|---|
 | **as shipped** (unbridged, `t1_min_border_px=5`) | 132.6 | **1** |
-| **bridged, thresholds unchanged** ← now shipped | 156.3 | **24** |
+| **bridged, thresholds unchanged** ← now shipped | 156.3 | **22** |
 | bridged, border ≥ 3 px | — | 35 |
 | bridged, border ≥ 1 px | — | 60 |
 
-**A 1.18× change in edge count produces a 24× change in swap count** — the signature of
+**A 1.18× change in edge count produces a 22× change in swap count** — the signature of
 the conjunction effect, and concentrated exactly where swaps live (the marginal-contact
 regime, where a film shrinks to zero and a new one forms).
 
@@ -57,9 +57,9 @@ could not confirm individual events or count false positives.
 
 Consequently:
 
-* **The recall improvement is not quantified against a hand-identified set.** "1 → 24" is
+* **The recall improvement is not quantified against a hand-identified set.** "1 → 22" is
   a change in detector output, not a measured recall.
-* **The false-positive rate of the 24 is unknown.** They may include segmentation flicker.
+* **The false-positive rate of the 22 is unknown.** They may include segmentation flicker.
 * **The T1 rate should not be published** — neither versus time nor versus bubble size —
   until it is.
 
@@ -70,7 +70,7 @@ absence was caused by searching for swaps on the wrong graph, and that is now co
 
 Render tightly-cropped, per-cluster panels over *t−1…t+2* (a swap's signature is a
 contact that persists, and a flicker's is one that does not), score 20–30 candidates by
-eye, and report recall and false positives. Until then the count of 24 is a corrected
+eye, and report recall and false positives. Until then the count of 22 is a corrected
 detector output, not a physical measurement.
 
 ## Blocked for Foams C and F

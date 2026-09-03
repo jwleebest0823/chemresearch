@@ -7,18 +7,29 @@ frame-pairs.
 
 ## Task 4 first, as briefed — the replication test
 
+> **UNITS CORRECTION (2026-08-27).** Horizons were originally reported in FRAMES, so
+> "t+20" meant 600 s for Foams A and C but only 200 s for Foam F (10 s/frame vs 30 s).
+> All values below are now at MATCHED PHYSICAL HORIZONS of 30 / 150 / 600 s. **Foams A
+> and C are unchanged** (they were already at those times); **only Foam F's numbers
+> move**, and its horizon spread worsens from 1.38× to 1.59×. dA/dt itself was always
+> correct — it is divided by elapsed seconds from the filename timestamps, with the
+> right per-foam interval — so this is a comparability fix, not a unit bug.
+
+
 **Verdict: the middle of the three pre-committed outcomes — _replicates in form,
 differs in calibration_. K is positive and horizon-stable on all three foams, and its
 raw magnitude is genuinely foam-dependent (CIs non-overlapping). But for the two
 well-measured foams the gap very nearly closes once the detector and the D4 coarsening
-rate are both accounted for — at t+20 the residual is 0.98×.**
+rate are both accounted for — at 600 s the residual is 0.98×.**
 
-| foam | h=1 | h=5 | h=20 | horizon spread | sign | OOS beats persistence |
+| foam | 30 s | 150 s | 600 s | horizon spread | sign | OOS beats persistence |
 |---|---|---|---|---|---|---|
 | **A** (exp1, 156 bubbles) | **+0.3667** [.3334,.3999] | **+0.3643** [.3334,.3933] | **+0.3583** [.3273,.3983] | **1.02×** | ✅ 3/3 | **6/6** (leave-one-session-out) |
 | **C** (exp3, 466 bubbles) | **+0.1776** [.1666,.1888] | **+0.1800** [.1699,.1933] | **+0.1933** [.1800,.2058] | **1.09×** | ✅ 3/3 | 3/6 (leave-one-epoch-out) |
-| **F** (exp10, 56 bubbles) | **+0.6333** [.3999,.8500] | **+0.5401** [.3131,.7773] | **+0.4575** [.1816,.8151] | **1.38×** | ✅ 3/3 | 3/6 (leave-one-epoch-out) |
+| **F** (exp10, 56 bubbles) | **+0.5995** [.4001,.8672] | **+0.4900** [.2367,.8045] | **+0.3764** [.1050,.8033] | **1.59×** | ✅ 3/3 | 3/6 (leave-one-epoch-out) |
 | *A, watershed (previous)* | *+0.4833* | *+0.4967* | *+0.5008* | *1.04×* | *✅* | *6/6* |
+
+*(Foam F's frame horizons are 3 / 15 / 60 at 10 s per frame; A and C are 1 / 5 / 20 at 30 s.)*
 
 Theil–Sen agrees with the primary estimator throughout (A +0.389/+0.387/+0.372, C
 +0.208/+0.200/+0.195), which it did **not** on the rejected foams — estimator
@@ -53,7 +64,7 @@ on the Foam A side.
 | 5 | 2.76× | 2.02× | **1.18×** | 42% | 48% |
 | 20 | 2.59× | 1.85× | **0.98×** | 46% | 55% |
 
-**Together the two corrections account for 82–101% of the gap, and at t+20 Foam A and
+**Together the two corrections account for 82–101% of the gap, and at 600 s Foam A and
 Foam C have the same normalised K to within 2%.** Neither correction is invented here:
 detector-matching is the whole point of the Cellpose work, and D4 (report K normalised
 by the scope's median |dA/dt|, because K carries the units of dA/dt and is confounded
@@ -69,18 +80,25 @@ Two honest statements, both true, and the reader should have both:
 
 ### (c) Foam F does not fit — and is also the worst-measured foam
 
-Foam F's raw K is the *highest* (+0.63 at t+1) but its normalised K is by far the
-*lowest* (0.083 vs A's 0.500), because its median |dA/dt| is 7.60 against Foam A's 0.73
-— a 10× larger target scale (10 s interval, much larger bubbles). Adding F raises the
-three-foam raw spread to 3.57× and the normalised spread to 6.00×, i.e. **D4
-normalisation makes the three-foam picture worse, not better.**
+Foam F's raw K is the *highest* at short horizon (+0.5995 at 30 s) but its normalised K
+is by far the *lowest* (0.142 vs A's 0.500), because its median |dA/dt| is 4.23 against
+Foam A's 0.73 — a ~6× larger target scale (much larger, faster-coarsening bubbles).
+Adding F raises the three-foam raw spread to 3.37× at 30 s and the normalised spread to
+3.53×, i.e. **D4 normalisation still does not rescue the three-foam picture.**
+
+Note this is materially less extreme than first reported. At the original frame-matched
+horizons Foam F was measured at 10 s, where its median |dA/dt| is 7.60 rather than 4.23
+— a shorter interval divides the same per-frame segmentation noise by a smaller number,
+inflating the apparent rate scale ~3×. That deflated F's normalised K to 0.083 and pushed
+the normalised spread to 6.00×. **Part of Foam F's outlier status was an artifact of
+comparing it over a 3× shorter timespan.** It remains an outlier, just a milder one.
 
 That is reported rather than smoothed over, but it should be read alongside Task 2:
 Foam F has **48.2% of its foam interior unlabelled** and a free-fit n₀ of **2.68–3.31**
 against the physical 6. Its ⟨n⟩ of 4.27 means its neighbour counts are wrong by roughly
 two. **A foam whose n is mis-measured by ~2 cannot test a law about n**, which is the
 same standard that rejected exp10 under the watershed and Foam C before it. Foam F's K
-is reported for completeness and its CI is wide ([+0.40, +0.85] at t+1, 56 bubbles); it
+is reported for completeness and its CI is wide ([+0.40, +0.87] at 30 s, 56 bubbles); it
 should not be weighted equally with A and C.
 
 ### The three failure modes
@@ -88,7 +106,7 @@ should not be weighted equally with A and C.
 | failure mode | Foam A | Foam C | Foam F |
 |---|---|---|---|
 | **Correct sign** (CI > 0 at every horizon) | ✅ | ✅ | ✅ |
-| **Horizon-stable** | **1.02×** | 1.09× | 1.38× |
+| **Horizon-stable** | **1.02×** | 1.09× | 1.59× |
 | **Beats persistence out-of-sample** | **6/6** | 3/6 | 3/6 |
 
 Foam A's horizon spread of **1.02× is better than the watershed's 1.04×** — horizon

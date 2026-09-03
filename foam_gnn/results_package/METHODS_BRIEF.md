@@ -67,6 +67,18 @@ robust estimator was unbiased with spread 0.009. Theil–Sen is reported as an i
 cross-check and agrees throughout. Least squares is still reported alongside, so the
 difference is visible rather than hidden.
 
+## Horizons and time units
+
+**Prediction horizons are specified in SECONDS and matched across foams**, never in
+frame counts. dA/dt is computed as ΔA divided by the elapsed time between the two
+frames, taken from the image filename timestamps, so it is always px² per second
+regardless of acquisition rate. This matters because the foams are not imaged at the
+same rate — Foams A and C at 30 s/frame, Foam F at 10 s/frame — so a horizon of "20
+frames" would mean 600 s in A and C but only 200 s in F. Every K reported here is
+fitted at 30 / 150 / 600 s: horizons of 1 / 5 / 20 frames for A and C, and 3 / 15 / 60
+frames for F. Frame intervals were verified from the filename timestamps rather than
+assumed from configuration.
+
 ## Uncertainty and out-of-sample testing
 
 Every confidence interval is a **cluster bootstrap resampling whole bubbles**, not
