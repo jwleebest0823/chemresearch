@@ -132,7 +132,9 @@ people report.
 * **Foam F is weak.** 56 bubbles, wide confidence intervals, 48% of its interior
   unlabelled (roughly double the ground-truth figure, suggesting genuinely missed
   bubbles), and its distance-to-edge measure is uninterpretable because the foam extends
-  past the field of view. It is reported, not weighted equally.
+  past the field of view. It is reported, not weighted equally. Its K also genuinely
+  varies with horizon (1.59x) in a way Foams A and C's does not — tested directly and
+  **not** a sampling-rate artifact (§6).
 * **The neural network does not beat physics.** Across nine held-out-foam cells the graph
   network never beat the best simple baseline and was significantly worse in seven; on two
   foams it collapsed to predicting no change at all. The von Neumann law was the best
@@ -145,6 +147,54 @@ people report.
 * **T1 swaps are detected and hand-verified (0/22 false positives), but the swap
   RATE is not statistically resolved** — 22 events across six time bins, several holding
   0–2 events. See the T1 addendum package.
+
+---
+
+## 6. The one experiment you asked for: is Foam F's horizon drift a sampling artifact?
+
+**No. Tested directly, and the answer is clean.**
+
+Foam F is imaged every 10 s; Foams A and C every 30 s. Foam F is also the only foam whose
+K drifts with horizon (1.59x, against 1.02x and 1.09x). Those two facts together are a
+fair thing to suspect, so we ran the controlled version: **keep every third frame of Foam
+F, giving a 30 s series from the identical images and the identical bubble outlines**, and
+re-fit. Frame intervals were measured from the image filenames, not assumed — native
+10.002 s, sub-sampled 30.004 s, against Foam A's own 30.002 s.
+
+| horizon | Foam F, native 10 s | Foam F, re-sampled to 30 s |
+|---|---|---|
+| 30 s | **+0.600** [0.400, 0.867] | +0.353 [0.092, 0.567] |
+| 150 s | **+0.490** [0.237, 0.805] | +0.303 [−0.037, 0.603] |
+| 600 s | **+0.376** [0.105, 0.803] | −0.266 [−0.718, 0.563] |
+
+**The drift does not go away. It gets worse** — at 30 s/frame K falls all the way through
+zero. → `figures/fig7_F_sampling_control.png`, `tables/K_foamF_sampling_control.csv`
+
+Two further results settle the interpretation:
+
+**The drift is real, not noise.** Testing it properly — resampling bubbles once and
+re-fitting *all three horizons on the same resample*, so the shared-bubble variation
+cancels — gives a drop of **+0.324 [+0.062, +0.617], p = 0.014** across the horizon range,
+declining in 86% of resamples. Comparing the three intervals by eye had suggested this was
+unresolvable; it is resolved. → `tables/K_horizon_decline_test.csv`
+
+**But re-sampling is not the clean experiment it appears to be, and we should say so.**
+Dropping two frames in three also forces the software to re-identify every bubble across
+gaps three times longer. That job measurably degrades: bubble identities survive a step
+97.3% of the time at 10 s but 94.9% at 30 s, and the tracker invents about twice as many
+spurious new bubbles per step. Meanwhile the *measurements* are untouched — wherever both
+versions agree on which bubble is which, the growth rate is identical to the last decimal.
+So the collapse in the right-hand column above is our tracking getting worse, not the foam
+behaving differently. Two independent checks confirm it: thinning the 10 s data to the same
+number of measurements barely moves K (+0.52 to +0.67 at 30 s, still declining), and out of
+2000 random draws matched to the re-sampled version's bubble count, **not one** reproduces
+its 600 s value.
+
+**Bottom line for the write-up:** Foam F's reported numbers stand as they are. Its horizon
+drift is a property of that foam or of how well we can measure it — not of its camera
+timing. Full detail in `docs/f_sampling_interval_control.md`.
+
+---
 
 ## Task-1 addendum: the missing neighbour swaps
 

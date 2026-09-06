@@ -244,6 +244,16 @@ def copy_figures() -> None:
     src = QC / "events" / "audit_exp1_run0.png"
     if src.is_file():
         shutil.copy(src, FIG / "fig6_event_audit_foamA.png")
+    # Foam F sampling-interval control (Dr. Oh's proposed experiment).
+    # See docs/f_sampling_interval_control.md; built by dev/f_subsample_control.py.
+    sub = QC / "f_subsample" / "figF_subsample_control.png"
+    if sub.is_file():
+        shutil.copy(sub, FIG / "fig7_F_sampling_control.png")
+    for name, dst in (("K_arms.csv", "K_foamF_sampling_control.csv"),
+                      ("paired_decline.csv", "K_horizon_decline_test.csv")):
+        p = QC / "f_subsample" / name
+        if p.is_file():
+            shutil.copy(p, TAB / dst)
     # fig5 (T1 detector-count) and fig7 (old centroid-line T1) are retired: they
     # documented code state, not physics. Remove any stale copies.
     for stale in ("fig5_t1_counts.png", "fig7_t1_candidates_foamA.png"):
@@ -273,7 +283,9 @@ def main() -> None:
     tot = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())
     print(f"\nfigures: {len(list(FIG.glob('*.png')))}  tables: {len(list(TAB.glob('*.csv')))}")
     print(f"total size: {tot / 1e6:.1f} MB")
-    print(f"output: {OUT}")
+    # NOTE: print the path RELATIVE to the repo root -- the absolute path contains
+    # non-ASCII characters and this console is cp1252, which raises on them.
+    print(f"output: {OUT.relative_to(ROOT).as_posix()}/")
 
 
 if __name__ == "__main__":

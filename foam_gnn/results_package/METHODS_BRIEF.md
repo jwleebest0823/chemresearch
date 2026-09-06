@@ -83,7 +83,7 @@ assumed from configuration.
 
 Every confidence interval is a **cluster bootstrap resampling whole bubbles**, not
 individual rows: a bubble's measurements are correlated across frames, and resampling
-rows would fake significance. 200 resamples, 95% percentile intervals.
+rows would fake significance. 1000 resamples, 95% percentile intervals.
 
 Every comparative claim is **out-of-sample**. K is fitted on one epoch or session and
 scored on a held-out one; model comparisons use leave-one-**foam**-out, with a foam's

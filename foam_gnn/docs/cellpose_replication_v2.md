@@ -31,6 +31,18 @@ rate are both accounted for — at 600 s the residual is 0.98×.**
 
 *(Foam F's frame horizons are 3 / 15 / 60 at 10 s per frame; A and C are 1 / 5 / 20 at 30 s.)*
 
+> **SAMPLING-INTERVAL CONTROL (2026-09-05).** Foam F's 1.59x horizon spread was tested
+> against the obvious suspicion — that it comes from being the only foam imaged at 10 s.
+> exp10 was re-sampled to every third frame (a verified 30.004 s series from the identical
+> images and masks) and re-fitted. **The decline persists and steepens** (K falls through
+> zero to −0.266 at 600 s), so the sampling interval is NOT the cause. The decline is also
+> now statistically resolved by a paired bootstrap over horizons: ΔK = +0.324
+> [+0.062, +0.617], p = 0.014. The re-sampled arm's collapse is traced to a degraded
+> identity layer (per-step ID retention 0.973 -> 0.949, ~2x the spurious births per step),
+> not to the measurements, which are bit-identical wherever the two arms agree on the
+> pairing. Foam F's reported values are unchanged. See
+> `docs/f_sampling_interval_control.md`.
+
 Theil–Sen agrees with the primary estimator throughout (A +0.389/+0.387/+0.372, C
 +0.208/+0.200/+0.195), which it did **not** on the rejected foams — estimator
 disagreement was itself the data-quality alarm there.
