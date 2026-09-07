@@ -254,6 +254,30 @@ def copy_figures() -> None:
         p = QC / "f_subsample" / name
         if p.is_file():
             shutil.copy(p, TAB / dst)
+    # Foam morphology (wet vs dry) and the K-fragility battery.
+    # See docs/wetness_and_k_fragility.md; built by dev/foam_wetness.py + dev/k_robustness.py.
+    for src, dst in ((QC / "wetness" / "fig_wetness_three_foams.png",
+                      FIG / "fig8_foam_wetness.png"),
+                     (QC / "wetness" / "fig_foamC_montage.png",
+                      FIG / "fig9_foamC_frames.png"),
+                     (QC / "k_robustness" / "fig_K_by_period.png",
+                      FIG / "fig10_K_by_period.png"),
+                     (QC / "k_robustness" / "fig_exclusions_and_fragility.png",
+                      FIG / "fig11_exclusions_and_fragility.png"),
+                     (QC / "wetness" / "wetness_summary.csv",
+                      TAB / "foam_wetness_summary.csv"),
+                     (QC / "k_robustness" / "task2_K_by_period.csv",
+                      TAB / "K_by_period.csv"),
+                     (QC / "k_robustness" / "task2_sign_diagnostics.csv",
+                      TAB / "K_sign_diagnostics.csv"),
+                     (QC / "k_robustness" / "task3a_min_area_sweep.csv",
+                      TAB / "K_min_area_sweep.csv"),
+                     (QC / "k_robustness" / "task3b_exclusions.csv",
+                      TAB / "K_exclusion_configs.csv"),
+                     (QC / "k_robustness" / "task4_fragility.csv",
+                      TAB / "K_fragility.csv")):
+        if src.is_file():
+            shutil.copy(src, dst)
     # fig5 (T1 detector-count) and fig7 (old centroid-line T1) are retired: they
     # documented code state, not physics. Remove any stale copies.
     for stale in ("fig5_t1_counts.png", "fig7_t1_candidates_foamA.png"):

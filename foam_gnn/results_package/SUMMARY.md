@@ -19,7 +19,9 @@ mean a different physical timespan in each foam.
 |---|---|---|---|---|---|
 | **A** (exp1) | **+0.367** [0.333, 0.400] | **+0.364** [0.333, 0.393] | **+0.358** [0.327, 0.398] | **1.02×** | **6 of 6 folds** |
 | **C** (exp3) | **+0.178** [0.167, 0.189] | **+0.180** [0.170, 0.193] | **+0.193** [0.180, 0.206] | 1.09× | 3 of 6 |
-| **F** (exp10) | **+0.600** [0.400, 0.867] | **+0.490** [0.237, 0.805] | **+0.376** [0.105, 0.803] | 1.59× | 3 of 6 |
+| **F** (exp10) † | **+0.600** [0.400, 0.867] | **+0.490** [0.237, 0.805] | **+0.376** [0.105, 0.803] | 1.59× | 3 of 6 |
+
+**† Foam F's row should not be read as a single number.** Split by period of the sequence, its K is **negative** in the first third and **+1.63** in the last (§7). The values above average across that sign change. Foams A and C are unaffected.
 
 Brackets are 95% confidence intervals from a bootstrap that resamples whole bubbles
 (not individual measurements), so within-bubble correlation cannot inflate significance.
@@ -134,7 +136,8 @@ people report.
   bubbles), and its distance-to-edge measure is uninterpretable because the foam extends
   past the field of view. It is reported, not weighted equally. Its K also genuinely
   varies with horizon (1.59x) in a way Foams A and C's does not — tested directly and
-  **not** a sampling-rate artifact (§6).
+  **not** a sampling-rate artifact (§6). Worse: its K **changes sign** across the sequence
+  (§7), so its pooled value is not a meaningful single number.
 * **The neural network does not beat physics.** Across nine held-out-foam cells the graph
   network never beat the best simple baseline and was significantly worse in seven; on two
   foams it collapsed to predicting no change at all. The von Neumann law was the best
@@ -193,6 +196,101 @@ its 600 s value.
 **Bottom line for the write-up:** Foam F's reported numbers stand as they are. Its horizon
 drift is a property of that foam or of how well we can measure it — not of its camera
 timing. Full detail in `docs/f_sampling_interval_control.md`.
+
+---
+
+## 7. Is Foam C wet? And how stable are these K values really?
+
+Four checks prompted by the sign flip in §6. Two of the four answers go against what we
+expected, and both are reported as found.
+
+### Foam C is DRY — it belongs with Foam A
+
+Twenty frames per foam, one detector, four measures of liquid content.
+→ `figures/fig8_foam_wetness.png`, `figures/fig9_foamC_frames.png`,
+`tables/foam_wetness_summary.csv`
+
+| measure | Foam A | **Foam C** | Foam F |
+|---|---|---|---|
+| unlabelled foam interior (films + liquid) | 19.5% | **17.9%** | **47.4%** |
+| film thickness ÷ bubble radius | 0.225 | **0.189** | **0.668** |
+| **junction size ÷ bubble radius** | **1.04** | **1.14** | **5.68** |
+| liquid fraction from image brightness alone | 22.6% | **25.3%** | **32.3%** |
+
+Foam F's junctions are **five times** the size of the other two relative to their own
+bubbles — the direct signature of a wet foam, where three films meet at a liquid pool
+rather than at a vertex. Foam C is Foam A's twin on every one of these.
+
+Two honest caveats. **Bubble circularity did not work as a wetness measure** — Foam F, the
+visibly wet one, came out the *least* round. It is confounded by bubble size, and we are
+not using it. And the last row above is the only measure that never touches the bubble
+outlines (it reads image brightness and the foam outline only), so it is the one immune to
+how generously the software draws boundaries.
+
+### But being dry does not make K stable — none of the three foams is
+
+Splitting each sequence into equal thirds by elapsed time and re-fitting:
+→ `figures/fig10_K_by_period.png`, `tables/K_by_period.csv`
+
+| foam | first third | middle third | last third | |
+|---|---|---|---|---|
+| A | +0.300 [0.283, 0.333] | +0.425 [0.383, 0.467] | +0.450 [0.367, 0.550] | rises 1.5× |
+| C | +0.200 [0.183, 0.233] | +0.197 [0.178, 0.200] | +0.133 [0.125, 0.156] | falls 1.5× |
+| **F** | **−0.300** [−0.608, −0.033] | **+1.567** [1.134, 1.916] | **+1.633** [1.134, 2.433] | **changes sign** |
+
+Every cell has enough bubbles to clear our power gate and every interval excludes zero, so
+this is real movement, not noise. **We had expected A and C to be flat and F to decline.
+None of that is what the data show.**
+
+**Why Foam F goes negative, measured rather than guessed.** In its wet first third, 61% of
+bubbles are *growing* — the liquid is draining out of the imaged plane, so gas area is not
+conserved there — while the wet morphology drives the measured neighbour count down to 4.3
+(Foam A: 5.2). Nearly half the measurements are therefore "fewer than six neighbours **and**
+growing", which is precisely the combination that makes the fitted K negative.
+→ `tables/K_sign_diagnostics.csv`
+
+**This is not evidence against von Neumann's law.** The law describes area exchange between
+neighbours at fixed total gas area; during drainage that premise simply does not hold, so
+neither does the sign of a fit that assumes it. It does mean Foam F's pooled K averages
+across two different regimes.
+
+### The exclusion filters move the numbers, so we are not using them
+
+Both suggested filters were tested, separately and together, and **every configuration is
+reported** — including the ones that changed nothing.
+→ `figures/fig11_exclusions_and_fragility.png`, `tables/K_min_area_sweep.csv`,
+`tables/K_exclusion_configs.csv`
+
+Rather than pick a minimum bubble size, we swept it. **K rises with the cut in all three
+foams and never plateaus**: over the sweep Foam A moves 14%, Foam C 50%, Foam F 57%. There
+is no threshold the data single out, so adopting one would be choosing a number.
+
+Dropping perimeter bubbles (a third of Foam A's) raises Foam A's K by 9% and *lowers* Foam
+F's by 18% — opposite directions. In Foam F the perimeter bubbles carry twice the interior's
+K, which is where evaporation is strongest and plausibly where the physics of interest sits.
+Neither filter is adopted; the sensitivity itself is the result.
+
+### How fragile is each foam's number?
+
+Range of K under each perturbation, divided by K's own size (0.5 = moves by half its value):
+→ `tables/K_fragility.csv`
+
+| foam | bubbles | drop 20% of bubbles | size cut | exclusions | horizon | **period** | sign flip |
+|---|---|---|---|---|---|---|---|
+| **A** | 156 | 0.09 | 0.14 | 0.50 | **0.02** | 0.41 | no |
+| **C** | 466 | 0.09 | **0.50** | 0.56 | 0.09 | 0.38 | no |
+| **F** | 56 | 0.41 | 0.57 | **1.32** | 0.37 | **3.22** | **yes** |
+
+* **Foam A is the only estimate robust across the board** — and it is also the only foam
+  with hand-labelled ground truth.
+* **Foam C is precise but size-sensitive.** Its 466 bubbles buy tight intervals; the point
+  estimate still moves by half its value depending on which bubbles are kept.
+* **Foam F is robust to nothing**, and its sign flips under a change involving no tracking
+  at all — just looking at the first third of its own sequence.
+
+**Bottom line for the write-up: Foam A carries the result. Foam C supports it with a stated
+size sensitivity. Foam F should be reported by period or not as a single number.** Full
+detail in `docs/wetness_and_k_fragility.md`.
 
 ---
 
