@@ -275,7 +275,15 @@ def copy_figures() -> None:
                      (QC / "k_robustness" / "task3b_exclusions.csv",
                       TAB / "K_exclusion_configs.csv"),
                      (QC / "k_robustness" / "task4_fragility.csv",
-                      TAB / "K_fragility.csv")):
+                      TAB / "K_fragility.csv"),
+                     # ground-truth validation of K and of the n=6 zero-crossing
+                     # (docs/gt_k_validation.md; dev/gt_k_validation.py + gt_n0_analysis.py)
+                     (ROOT / "paper_figures" / "figD_n0_zero_crossing.png",
+                      FIG / "fig12_n0_zero_crossing.png"),
+                     (QC / "gt_k" / "n0_and_branch.csv", TAB / "n0_and_branch.csv"),
+                     (QC / "gt_k" / "gt_k_summary.csv", TAB / "K_ground_truth_vs_detector.csv"),
+                     (QC / "gt_k" / "gt_k_by_size_tercile.csv",
+                      TAB / "K_ground_truth_by_size.csv")):
         if src.is_file():
             shutil.copy(src, dst)
     # fig5 (T1 detector-count) and fig7 (old centroid-line T1) are retired: they

@@ -58,7 +58,7 @@ depend on the answer coming out right.
 | 1 | **Propagation ratchet.** Bubble identities were carried forward geometrically, so one label could swallow its neighbours and never split back. | Foam A collapsed 385 → 106 bubbles while an independent count of the same frames found 219. | A guard comparing the tracked count against an independent per-frame count. |
 | 2 | **Plateau borders counted as bubbles.** The liquid channels where three films meet are bright enough to pass as gas. | Detection precision 0.347; F1 0.515. **And they sit *between* real neighbours, so they corrupted exactly the neighbour count `n` that the law is about.** | 14 hand-labelled frames. F1 0.515 → 0.899 after a per-region intensity gate. |
 | 3 | **Foam-mask threshold cliff.** The mask separating foam from background sat on a step in its own threshold curve, so it flickered frame to frame. | Late Foam A frames flooded; bubble identities churned; the mask cut foam off entirely on two other foams. | Sweeping the threshold and finding mask area was a step function of it. |
-| 4 | **Leverage.** K was fitted by least squares, which weights each bubble by `(n−6)²`. | **86 of 7106 measurements — 1.2% — carried 48% of the fit weight and flipped K's sign at t+1.** Those 86 were giant flickering bubbles, not physics. On another foam this produced K = −1.74. | Stratifying the fit weight by `|n−6|`. → `figures/fig3_leverage.png` |
+| 4 | **Leverage.** K was fitted by least squares, which weights each bubble by `(n−6)²`. | **86 of 7106 measurements — 1.2% — carried 48% of the fit weight and flipped K's sign at t+1.** Those 86 were giant flickering bubbles, not physics. On another foam this produced K = −1.74. | Stratifying the fit weight by `|n−6|`. → `figures/fig3_leverage.png` — retained, but superseded as a headline by the fragility figure (§7) |
 | 5 | **A model trained on rejected data.** The neural-network result rested on training data from a foam later rejected for a segmentation defect. | An apparent "graph network beats physics" result at long horizon. | Re-running the split and finding the training set no longer existed. |
 
 **The honest summary of that history: for a period we had a large negative K and believed
@@ -92,6 +92,27 @@ labels, it is not:
 **Cellpose reproduces the hand-labelled neighbour count to within 0.03. The watershed
 over-counts by 0.60**, all of it at the raft edge, where flooding the foam mask makes
 perimeter bubbles touch each other spuriously.
+
+**The hand labels also confirm von Neumann's zero-crossing — and expose a detector offset.**
+The law says a bubble with exactly six neighbours neither grows nor shrinks, so the fitted
+line must cross zero at n = 6. Measured on the same bubbles, with the same code:
+
+| | intercept | **crossing point** | shrinking-vs-growing asymmetry |
+|---|---|---|---|
+| **hand-labelled truth** | −0.003 | **n = 6.01** [5.76, 6.31] | **1.24x** |
+| Cellpose | +0.421 | **n = 5.21** [5.05, 5.37] | **2.42x** |
+
+**The hand labels land on 6.01 — the textbook value — while the detector lands on 5.21.**
+The detector's offset roughly doubles a real asymmetry between shrinking and growing
+bubbles. It does not move our headline K, but it is the reason the minimum-size sweep never
+settles, and no detector-only analysis could have found it.
+→ `figures/fig12_n0_zero_crossing.png`, `tables/n0_and_branch.csv`
+
+**Reassuringly, K itself survives the same test.** K from ground-truth bubbles is +0.366
+against +0.333 from detected bubbles on the identical frames — a difference that is not
+statistically resolved (p = 0.51) — and the ground-truth value reproduces our published
+Foam A figure of +0.367 to three decimal places. Excluding the bubbles the detector misses
+changes K by 0.004. **No reported K needed revision.** → `docs/gt_k_validation.md`
 
 **⟨n⟩ = 6 is the wrong target for this system, and the hand labels prove it.** The
 familiar result ⟨n⟩ → 6 is Euler's theorem for an *infinite* tiling. These are finite
@@ -264,6 +285,17 @@ reported** — including the ones that changed nothing.
 Rather than pick a minimum bubble size, we swept it. **K rises with the cut in all three
 foams and never plateaus**: over the sweep Foam A moves 14%, Foam C 50%, Foam F 57%. There
 is no threshold the data single out, so adopting one would be choosing a number.
+
+**We now know why, and it is not measurement error.** Tested against the hand labels (§3),
+K from ground-truth bubbles and from detected bubbles are statistically indistinguishable,
+and the bubbles the detector misses contribute nothing. What a size cut actually does is
+shift the population between two branches that genuinely differ: bubbles with fewer than six
+neighbours fit a lower K than those with more. Bubble area and neighbour count are strongly
+correlated (Spearman 0.728 in the ground truth), and the smallest third of ground-truth
+bubbles contains **no** bubble with more than six neighbours — so raising the cut walks the
+fit from the low-K branch to the high-K branch. That is a sharper statement of the
+limitation than "small bubbles are measured badly", and it explains the missing plateau: the
+mixture shifts continuously, so there is no point at which it stops.
 
 Dropping perimeter bubbles (a third of Foam A's) raises Foam A's K by 9% and *lowers* Foam
 F's by 18% — opposite directions. In Foam F the perimeter bubbles carry twice the interior's
