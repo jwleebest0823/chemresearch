@@ -184,7 +184,7 @@ finding twice.
 | gate | watershed (rejected) | **Cellpose** |
 |---|---|---|
 | region count trend | 574 → 1325, **rising** | **555 → 221, falling** |
-| Spearman ρ(frame, count) | **+0.98** | **−0.9993** (p = 9.6e-141) |
+| Spearman ρ(frame, count) | **+0.98** *(not reproducible — the shipped reference curve in `colab_package/reference_metrics.json` gives **+0.87**; corrected 2026-09-18, `results_package/tables/count_curve_spearman.csv`)* | **−0.9993** (p = 9.6e-141) |
 | worst count / running-min | **2.42×** | **1.020×** |
 | **fragmentation guard (1.50×, patience 3)** | **FIRES at frame 37** | **does not fire** |
 | median bubble area | collapses | **384 → 1455 px², ρ = +0.9933** |

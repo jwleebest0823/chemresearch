@@ -246,9 +246,13 @@ def _stable_threshold(dens: np.ndarray, thr0: float, cfg: BoundaryConfig) -> flo
 def foam_mask_clipping(mask: np.ndarray) -> float:
     """Fraction of the image border covered by foam (0 = free-floating, 1 = fills frame).
 
-    When this is large the foam extends beyond the field of view, so ``dist_to_edge``
-    measures distance to the *frame*, not to the evaporation edge, and every radial /
-    edge-distance analysis on that frame is uninterpretable.
+    When this is large, either the foam extends beyond the field of view or the mask has
+    leaked off the raft onto the plate (Foam F: its raft is fully in view, but 25% of its
+    mask lies outside the bubbles' convex hull). Either way ``dist_to_edge`` is not
+    distance to the evaporation edge, and every radial / edge-distance analysis on that
+    frame is uninterpretable. Note the converse does not hold: a mask that stays off the
+    border can still leak past the outermost bubbles (11% of Foam A's mask does), so
+    edge-based quantities should be measured from the bubbles' convex hull.
 
     mask : bool (H, W) -> float in [0, 1].
     """
@@ -279,10 +283,12 @@ def compute_foam_mask(img: np.ndarray, cfg: BoundaryConfig) -> tuple[np.ndarray,
     if clip > cfg.clip_border_warn_frac:
         warnings.warn(
             f"foam mask covers {clip:.0%} of the image border (> "
-            f"{cfg.clip_border_warn_frac:.0%}): the foam extends beyond the field of "
-            "view, so dist_to_edge measures distance to the FRAME, not to the "
-            "evaporation edge. Radial / edge-distance results on this frame are not "
-            "interpretable as distance-to-evaporation-edge.",
+            f"{cfg.clip_border_warn_frac:.0%}): either the foam extends beyond the field "
+            "of view or the mask has leaked off the raft onto the plate (the Foam F case; "
+            "docs/verification_wetness_t1.md). Either way dist_to_edge is not distance to "
+            "the raft's evaporation edge, and radial / edge-distance results on this frame "
+            "are not interpretable. Measure edge distance from the convex hull of the "
+            "detected bubbles instead.",
             RuntimeWarning,
             stacklevel=2,
         )

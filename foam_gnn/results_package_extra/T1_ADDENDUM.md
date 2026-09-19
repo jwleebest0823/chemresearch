@@ -18,8 +18,13 @@ it is implausible on its face and needed resolving before publication.
 unlabelled gaps between touching bubbles — a fix validated earlier in the project. The
 part that searches for swaps had not been updated to use that same repaired neighbour
 graph, so it was working from a map with more missing contacts. Under our detector,
-21–25% of the foam's interior area carries no bubble label at all (film and Plateau
-border), so two bubbles that are genuinely in contact often have no *pixel* contact.
+~~21–25% of the foam's interior area carries no bubble label at all (film and Plateau
+border)~~ part of the raft carries no bubble label at all — film and Plateau border
+(*corrected 2026-09-18:* the 21–25% was measured over a foam outline that leaks off the
+raft; inside the raft, excluding a one-radius margin, it is 7.2% under Cellpose and 11.4%
+in the hand labels, `results_package/tables/n_calibration.csv`; the argument here does not
+depend on the figure), so two bubbles that are genuinely in contact often have no *pixel*
+contact.
 
 That matters far more for swap detection than for a simple neighbour count, because
 **identifying one swap requires eight separate contact conditions to all be correct at
@@ -72,6 +77,26 @@ The one claim the data does support: **swaps concentrate in the dense early foam
 become sparse afterward.** The apparent uptick in run1's final third (0.21) is within
 what 1–2 events can produce by chance on a shrinking bubble population and should not be
 read as a real late-stage increase.
+
+> **Caveat added 2026-09-18 — this is a statement about counts, not about a rate.** The
+> early foam also has more places for a swap to happen. Normalised by exposure — the
+> detector's own search set of shared films between persisting bubbles — Foam A's
+> first-third-to-last-third ratio falls from **5.84× (raw, p = 0.001)** to **2.15× per
+> available contact (p = 0.32, 95% CI [0.62, 11.4])**. That is *no evidence of a decline*,
+> not evidence of no decline: with 20 events in the two thirds the test could only resolve
+> a ratio of about 7 or more. Per bubble the ratio is 2.38× (p = 0.22).
+> (`results_package/tables/t1_first_vs_last_third.csv` and `t1_rates_by_period.csv`;
+> exact Poisson intervals, conditional binomial test.)
+>
+> **Other foams (not hand-verified).** The same shipped detector, re-run with the adjacency
+> fix, finds **113 swaps in Foam C** and **3 in Foam F**; a guard requires it to reproduce
+> Foam A's 22 exactly, and it does. Foam C's per-contact decline is resolved (2.29×,
+> p = 0.001), but it rests on a tracker that creates many spurious new identities on Foam C
+> (`results_package/SUMMARY.md` §4), and none of its 113 events has been checked by eye (5 of the 67 early ones
+> involve a bubble born within the previous five frames). Foam F's 3 swaps (1 / 0 / 2
+> across its thirds) cannot test anything. Checking the cross-foam events by hand would
+> mean scoring 116 events, five times the Foam A exercise; it has not been done. See
+> `docs/verification_wetness_t1.md`, Task 5.
 
 **Swap-involved bubble size.** → `figures/figA2_size_involvement.png`,
 `tables/t1_size_involvement.csv`

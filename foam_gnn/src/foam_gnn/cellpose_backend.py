@@ -251,6 +251,12 @@ def expand_to_foam_mask(
     #   * the GT itself leaves 25.1% of the foam interior unlabelled (Cellpose 21.6%,
     #     watershed 12.4%) -- real foam interior is ~1/4 film and Plateau border, and a
     #     human labeller marks it as such. The watershed's low figure is the anomaly.
+    #     SUPERSEDED 2026-09-18: those shares were measured over the foam outline, which
+    #     leaks off the raft. Inside the raft (one-radius margin excluded) GT 11.4%,
+    #     Cellpose 7.2%, watershed 11.0%; GT interior <n> is 5.79 with the raft edge. The
+    #     "~1/4 film" and "watershed anomaly" readings are withdrawn; the rejection of this
+    #     expansion stands (it moved <n> and areas away from truth and cost 0.12 F1).
+    #     See paper_figures/README.md, Figure 5.
     #   * <n> measured on GT is 5.06 (all) / 5.62 (interior). Cellpose gives 5.10 /
     #     5.77 -- within +0.03 / +0.15 of truth. The watershed gives 5.67 / 5.71, i.e.
     #     it OVER-counts by +0.60 at the population level, all of it from edge bubbles

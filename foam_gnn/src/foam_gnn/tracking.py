@@ -796,7 +796,8 @@ def track_sequence(results: list[SegmentationResult], cfg: PipelineConfig) -> Tr
     # adjacency `graph.py` uses. This pass was left on the raw `_adjacency_lengths`
     # when D2 introduced bridging, so T1s were being sought on a neighbour graph
     # known to under-count edges (<n> 4.48 vs 5.93 on the watershed; 21-25% of the
-    # foam interior is unlabelled under Cellpose). A T1 requires EIGHT edge
+    # foam interior is unlabelled under Cellpose -- a foam-outline figure; inside the
+    # raft it is 7.2%, corrected 2026-09-18, docs/verification_wetness_t1.md). A T1 requires EIGHT edge
     # conditions to resolve at once, so a modest per-edge miss rate collapses T1
     # recall almost to zero -- measured: 1 swap in 198 Foam A frames before,
     # 24 after, from a 1.18x change in edge count alone.

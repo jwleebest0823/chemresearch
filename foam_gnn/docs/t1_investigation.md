@@ -14,7 +14,9 @@ adjacency is measured, so two bubbles sharing a thin film count as neighbours. `
 
 **`tracking.py`'s T1 pass was never updated.** It built its adjacency with the raw
 `_adjacency_lengths`, on a graph known to under-count edges — and under Cellpose, 21–25%
-of the foam interior carries no label at all, so films frequently have no pixel contact.
+of the foam interior carries no label at all *(foam-outline figure; inside the raft it is
+7.2% — corrected 2026-09-18, `docs/verification_wetness_t1.md`)*, so films frequently have
+no pixel contact.
 
 That matters far more for T1 than for `⟨n⟩`, because **a swap requires eight edge
 conditions to resolve simultaneously**: `P–Q` present at *t* and gone at *t+1*, `R–S`

@@ -1,5 +1,12 @@
 # exp10 (Foam F) replication attempt — BLOCKED: exp10 is guard-rejected like Foam C
 
+> **Superseded for the Cellpose detector (2026-08-13; pointer added 2026-09-18).** The
+> verdicts below apply to the watershed pipeline only. Under Cellpose, exp10 (Foam F) and
+> Foam C both pass the physical gates (`docs/cellpose_replication_v2.md`), and both are
+> used in the revised paper (Figures 1 and 3). The "required ~6" neighbour-count target
+> used below was also withdrawn (2026-08-14): on a finite raft the hand-labelled Foam A
+> value is 5.08 (`docs/tiling_gap_investigation.md`).
+
 **Answer up front: the Foam A result does NOT replicate on exp10, but the honest reading
 is that exp10 is not measurable, not that the law fails.** The attempt is blocked at Task
 2 — exp10 has the same fragmentation defect that rejected Foam C — so no corrected K
@@ -25,6 +32,10 @@ grounds (§5).
 * **exp10 trips the mask clipping warning at 21–28%.** `distance_to_evap_edge` is *not*
   interpretable and **no radial or edge-distance conclusion may be drawn from exp10**.
   von Neumann needs only `area` and `n_sides`, so the clipping does not block the K work.
+  *Corrected 2026-09-18:* the border contact is the foam mask leaking off the raft onto
+  empty plate, not foam extending past the field of view — exp10's raft is fully in view
+  (`docs/verification_wetness_t1.md`). The conclusion stands, for a broader reason:
+  `distance_to_evap_edge` measures distance to the leaky outline in every foam.
 
 ## 1. Task 2 — the physical-trend gate: exp10 FAILS
 
@@ -160,15 +171,17 @@ qualification:
   1.04× horizon spread.
 * **But the non-replication cannot be attributed to physics**, because exp10 fails the
   same data-quality gate that rejected Foam C: the fragmentation guard fires, ⟨n⟩ is 4.15
-  against a required ~6, n₀ is 0.83–3.23 against 6, and there is no ground truth to
-  adjudicate any of it. A foam whose neighbour count is mis-measured by ~2 cannot test a
-  law about neighbour count.
+  ~~against a required ~6~~, n₀ is 0.83–3.23 against 6, and there is no ground truth to
+  adjudicate any of it. ~~A foam whose neighbour count is mis-measured by ~2 cannot test a
+  law about neighbour count.~~ *(Corrected: ⟨n⟩ = 6 is not the target on a finite raft;
+  the n₀ of 0.83–3.23 and the guard failure remain the pathology.)*
 * **No tuning was attempted toward a positive K.** The one window that passed the coarse
   trend test was selected by a pre-registered physical criterion (count down, size up),
   not by inspecting K, and it failed the guard anyway.
 
 **So Foam A remains the only foam on which the corrected von Neumann result stands, and it
-still has no independent replication.** exp10 joins Foam C as measured-unusable rather than
+still has no independent replication.** *(Under the watershed pipeline; superseded for
+Cellpose — see the note at the top.)* exp10 joins Foam C as measured-unusable rather than
 as evidence against the law. Three of the project's six foams (C, F, and B by earlier
 work) are now rejected on data quality; the binding constraint remains segmentation, and
 the learned per-frame detector (`docs/segmentation_hybrid_seeding.md` §5) is the

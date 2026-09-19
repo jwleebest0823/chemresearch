@@ -1,0 +1,5 @@
+series,spearman_frame_vs_count
+Foam C watershed,0.8672146052439713
+Foam A Cellpose (first run),-0.9988924133963878
+Foam C Cellpose,-0.9993165934751375
+Foam F Cellpose (frames 0-225),-0.9873126440976813

@@ -1,9 +1,38 @@
 # Verification before revision: circularity, junction width, the foam mask, and T1 rates
 
+> **Status (2026-09-18, later the same day): the corrections below were approved and
+> APPLIED.** All three proposals were approved as written — the wetness figure (corrected
+> junction primary, brightness liquid fraction secondary, drying trend against the
+> negative-K window; film width, unlabelled fraction and circularity dropped), the
+> raft-edge perimeter definition, and a supplementary note (not a figure) for T1 with the
+> Foam A density caveat. Applied in: `paper_figures/` (Figures 3–5 and S3–S4 rebuilt; see
+> its README), `results_package/SUMMARY.md` §3, §5, §7 and the T1 addendum,
+> `results_package/METHODS_BRIEF.md`, `docs/wetness_and_k_fragility.md`,
+> `docs/cellpose_replication_v2.md`, `docs/tiling_gap_investigation.md`,
+> `docs/f_sampling_interval_control.md`, `docs/exp10_replication_attempt.md`,
+> `results_package_extra/T1_ADDENDUM.md`, and the foam-mask border warning in
+> `src/foam_gnn/segmentation.py`. Withdrawn claims were left visible and marked, not
+> replaced. The detector calibration was also re-measured on identical frames with the
+> raft edge (paper Figure 5), which withdrew two further statements: "a quarter of the
+> foam interior is not bubble" and "the watershed over-counts because it leaves the least
+> space between bubbles".
+>
+> **A second adversarial review** of the rebuilt figures against their tables (4 reviewers,
+> each finding checked by an independent skeptic; 61 of 81 findings confirmed) led to
+> further corrections, all marked where they occur: the hand-labelled branch asymmetry
+> (1.24×) is not resolved from 1; "the size cut is not measurement error" is narrowed to
+> "present in the hand labels too"; the hand labels were corrected from a watershed
+> pre-seed (87% of bubbles pixel-identical), now disclosed in Figure 5; least squares
+> failed the sign test rather than flipping the sign (S1); the count-curve rank
+> correlations did not match the plotted series (S2); Foam F's within-window horizon drop
+> is not resolved; its perimeter result is "no resolved effect", not "no effect"; and
+> Foam C, which also starts wet, keeps a positive first-third K. See
+> `paper_figures/README.md` and `results_package/SUMMARY.md`.
+
 Checkpoint document. Tasks 2 and 3 were verification tasks that could invalidate published
-claims; **both did**. Nothing published has been changed yet: no figure regenerated, no
-caption or summary edited. This records the evidence and the corrections proposed, for
-review before the wetness figure and the fragility figure are rebuilt.
+claims; **both did**. At the time of writing nothing published had been changed: no figure
+regenerated, no caption or summary edited. This records the evidence and the corrections
+proposed, for review before the wetness figure and the fragility figure were rebuilt.
 
 Every verdict below was independently re-derived by an adversarial reviewer using a
 different method from the original analysis, plus a completeness critic (six reviewers;
@@ -31,9 +60,11 @@ as Foam A. The "pointed the wrong way" result is itself mostly this artifact.**
 2. **Removing the bias removes most of the gap.** Dividing each bubble's score by that of
    an ideal circle of the same radius shrinks C − F from +0.031 to +0.009 (≈ 70–77%).
    Independently, two scale-free estimators need no correction at all: the Crofton
-   perimeter scores ideal circles 1.000 ± 0.002 at every radius, and on real bubbles gives
-   **A 0.978, C 0.985, F 0.978**; a marching-squares contour gives the same C − F gap
-   (+0.007).
+   perimeter scores ideal circles ~~1.000 ± 0.002~~ within 2% of 1 at every radius from 6
+   to 80 px, and on real bubbles gives **A 0.978, C 0.984, F 0.975**
+   (`qc/verify_circularity/scalefree_medians.csv`; the reviewer's subsample gave 0.978 /
+   0.985 / 0.978 — corrected 2026-09-18); a marching-squares contour gives the same C − F
+   gap (+0.007).
 3. **The supervisor's roughness hypothesis is not supported.** At matched size (radius
    24–34 px) Foam F's outlines are no rougher than C's: solidity is equal or higher in F,
    high-frequency boundary energy (Fourier modes ≥ 9) is C 0.0089 vs F 0.0097 (not
@@ -48,9 +79,10 @@ as Foam A. The "pointed the wrong way" result is itself mostly this artifact.**
 
 **Proposed caption text:** *Bubble circularity is not shown. The pixel-counting perimeter
 estimator scores smaller objects as rounder — an ideal circle reads 0.953 at 15 px radius
-and 0.920 at 40 px — which by itself produced the apparent ordering (dry Foam C roundest,
-wet Foam F least round). With a scale-free perimeter the three foams agree to within 0.01
-and Foams A and F are identical, so circularity carries no usable wetness signal here.*
+and 0.920 at 40 px — which by itself produced the apparent ordering (finest Foam C
+roundest, coarsest Foam F least round). With a scale-free perimeter the three foams agree to
+within 0.01 and Foams A and F are statistically indistinguishable (0.978 and 0.975,
+overlapping intervals), so circularity carries no usable wetness signal here.*
 
 ---
 
@@ -185,8 +217,8 @@ identities: 0.83 early vs 0.95 late), so it biases *against* the observed early 
 none of the 113 has been checked by eye.
 
 **Step 4 — verdict: no sixth main-text figure.** Foam F's 3 swaps cannot test the
-transition, Foam A's effect is unresolved after normalisation, and Foam C is a dry foam
-whose events are unvalidated. Supplementary note only. The Foam A sentence in the T1
+transition, Foam A's effect is unresolved after normalisation, and Foam C is an
+intermediate-to-dry foam whose events are unvalidated. Supplementary note only. The Foam A sentence in the T1
 addendum ("swaps concentrate in the dense early foam and become sparse afterward") is true
 of raw counts; it needs the per-contact caveat above and must not be read as a rate claim.
 Validating the cross-foam events by hand would mean scoring **116 events (113 C + 3 F)** —

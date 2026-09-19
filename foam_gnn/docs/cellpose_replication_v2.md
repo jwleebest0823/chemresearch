@@ -5,6 +5,28 @@ is gone. Every foam is now Cellpose-detected, and Foam A is measured with **both
 detectors, so the detector effect is observed directly instead of estimated from 7
 frame-pairs.
 
+> **⚠ CORRECTION (2026-09-18) — the foam-mask numbers in this document.** Every
+> "unlabelled interior" percentage below was measured over the foam mask, which leaks off
+> the raft onto empty plate (11% of Foam A's mask, 8% of C's, 25% of F's lies outside the
+> convex hull of the detected bubbles; `docs/verification_wetness_t1.md`). In particular:
+>
+> * **Foam F's "48.2% unlabelled" is withdrawn as a detection statistic.** Inside the raft
+>   core (the hull shrunk by one bubble radius) Cellpose leaves **26.9%** [23.6, 30.8] of
+>   Foam F unassigned, against 7.0% (A) and 9.0% (C) — still about four times Foam A's and
+>   three times Foam C's, but these images cannot say how much of that is liquid (Foam F is wettest early)
+>   and how much is missed bubbles.
+> * **"Foam F's foam extends past the field of view" / "mask clipping" is withdrawn.** Its
+>   raft is fully in view; only the leaky mask reaches the image border.
+> * **`distance_to_evap_edge` is unreliable in all three foams, not only Foam F.** It
+>   measures distance to the leaky outline; a perimeter rule built on it missed 26% (A),
+>   59% (C) and 38% (F) of genuine rim bubbles. It is an MLP/GNN input feature, so every
+>   learned-model cell inherits that caveat.
+> * The detector-calibration numbers quoted in the 2026-08 block below (5.08 / 5.66 / 25.3%;
+>   watershed 5.67 / 5.71 / 12.4%) are superseded by `paper_figures/README.md`, Figure 5,
+>   which scores all three detectors on the same 14 frames against the raft edge.
+>
+> The original text is left in place; individual statements are marked where they occur.
+
 ## Task 4 first, as briefed — the replication test
 
 > **UNITS CORRECTION (2026-08-27).** Horizons were originally reported in FRAMES, so
@@ -17,7 +39,10 @@ frame-pairs.
 
 
 **Verdict: the middle of the three pre-committed outcomes — _replicates in form,
-differs in calibration_. K is positive and horizon-stable on all three foams, and its
+differs in calibration_. K is positive ~~and horizon-stable~~ on all three foams *(corrected
+2026-09-18: horizon-stable for Foams A and C only — Foam F's decline across horizons is
+resolved, p = 0.014, `docs/f_sampling_interval_control.md` — and its K changes sign across
+its life, paper Figure 1)*, and its
 raw magnitude is genuinely foam-dependent (CIs non-overlapping). But for the two
 well-measured foams the gap very nearly closes once the detector and the D4 coarsening
 rate are both accounted for — at 600 s the residual is 0.98×.**
@@ -43,8 +68,9 @@ rate are both accounted for — at 600 s the residual is 0.98×.**
 > pairing. Foam F's reported values are unchanged. See
 > `docs/f_sampling_interval_control.md`.
 
-Theil–Sen agrees with the primary estimator throughout (A +0.389/+0.387/+0.372, C
-+0.208/+0.200/+0.195), which it did **not** on the rejected foams — estimator
+Theil–Sen agrees with the primary estimator ~~throughout~~ (A +0.389/+0.387/+0.372, C
++0.208/+0.200/+0.195) *(corrected 2026-09-18: for Foams C and F at 30 s and 150 s — Foam F +0.912/+0.865/+0.467 —
+Theil–Sen falls outside the primary estimator's interval; it agrees for Foam A)*, which it did **not** on the rejected foams — estimator
 disagreement was itself the data-quality alarm there.
 
 ### (a) The detector effect, measured directly
@@ -106,10 +132,16 @@ the normalised spread to 6.00×. **Part of Foam F's outlier status was an artifa
 comparing it over a 3× shorter timespan.** It remains an outlier, just a milder one.
 
 That is reported rather than smoothed over, but it should be read alongside Task 2:
-Foam F has **48.2% of its foam interior unlabelled** and a free-fit n₀ of **2.68–3.31**
-against the physical 6. Its ⟨n⟩ of 4.27 means its neighbour counts are wrong by roughly
-two. **A foam whose n is mis-measured by ~2 cannot test a law about n**, which is the
-same standard that rejected exp10 under the watershed and Foam C before it. Foam F's K
+Foam F has ~~**48.2% of its foam interior unlabelled**~~ *(foam-mask figure, withdrawn
+— 26.9% inside the raft core; see the correction at the top)* and a free-fit n₀ of **2.68–3.31**
+against the physical 6. ~~Its ⟨n⟩ of 4.27 means its neighbour counts are wrong by roughly
+two. **A foam whose n is mis-measured by ~2 cannot test a law about n**~~ *(corrected
+2026-09-18: ⟨n⟩ = 6 is not the target on a finite raft — the hand-labelled Foam A value is
+5.08, and rim bubbles average about 4 — so a low ⟨n⟩ is not by itself a mis-measurement.
+Foam F's 4.27 also reflects its wet early morphology (4.89 and 4.81 in its later thirds) and
+possible missed bubbles; how large any mis-measurement is cannot be known without ground
+truth)*, which is the same standard that rejected exp10 under the watershed and Foam C
+before it. Foam F's K
 is reported for completeness and its CI is wide ([+0.40, +0.87] at 30 s, 56 bubbles); it
 should not be weighted equally with A and C.
 
@@ -126,7 +158,8 @@ stability survives the detector change intact, which is a stronger form of repli
 than the K value itself managing.
 
 **Bottom line.** von Neumann's law replicates across three independent foams in the two
-structural respects — correct sign at every horizon, and a horizon-stable K — with the
+structural respects — correct sign at every horizon, and a horizon-stable K *(for Foams A
+and C only; see the correction to the verdict above)* — with the
 detector held constant and on 4–5× more data than the original Foam A result. Its raw
 calibration does not transfer. For the two foams whose neighbour counts are trustworthy,
 detector-matching plus the D4 normalisation reconcile the difference almost completely.
@@ -171,9 +204,13 @@ All three foams pass the physical gates under Cellpose:
 > about **which detector is right**. Measured against the 14 GT masks: GT ⟨n⟩ = 5.08
 > (population) / 5.66 (interior); **Cellpose = 5.11 / 5.76, i.e. +0.03 from truth**;
 > the **watershed = 5.67 / 5.71, i.e. +0.60 too high** at the population level, from
-> spurious edge contacts. The GT itself leaves **25.3%** of the foam interior
+> spurious edge contacts. ~~The GT itself leaves **25.3%** of the foam interior
 > unlabelled — more than Cellpose's 20.9% — so a quarter of foam interior genuinely is
-> film and Plateau border, and the watershed's 12.4% is the anomaly.
+> film and Plateau border, and the watershed's 12.4% is the anomaly.~~
+> *(Withdrawn 2026-09-18 — foam-mask definition. Inside the raft: GT 11.4%, Cellpose
+> 7.2%, watershed 11.0%; interior ⟨n⟩ GT 5.79, Cellpose 5.84, watershed 5.71; the
+> watershed's excess is +1.62 on rim bubbles and −0.08 on interior ones; ~38% of bubbles
+> are on the rim. See the correction at the top of this document.)*
 >
 > Consequently **⟨n⟩ → 6 was never an attainable target on these finite rafts** (~32%
 > of bubbles sit on a free perimeter with ⟨n⟩ ≈ 4), and the paragraph below beginning
@@ -191,9 +228,15 @@ Foam A run0, **same foam, same frames**, only the detector swapped:
 | Foam F, Cellpose | **4.27** | **4.53** | **3.28** | **48.2%** |
 
 Last session I attributed the low ⟨n⟩ to something about Foam C. **That was wrong.**
-Cellpose costs ~0.5–0.8 neighbours on the foam where the watershed does best, and the
+~~Cellpose costs ~0.5–0.8 neighbours on the foam where the watershed does best, and the
 deficit tracks the unlabelled fraction across all three foams — 12.4% → 22.3% → 48.2%
-maps onto ⟨n⟩ 5.84 → 5.03 → 4.27. That is a mechanism, not a correlation: Cellpose emits
+maps onto ⟨n⟩ 5.84 → 5.03 → 4.27. That is a mechanism, not a correlation:~~
+**WITHDRAWN (2026-09-18):** the fractions were measured over the leaky foam mask. Inside
+the raft core Cellpose leaves 7.0% (A), 9.0% (C) and 26.9% (F) unassigned, against ⟨n⟩ of
+5.03, 5.41 and 4.27 — Foam C has more unassigned area than A *and* the higher ⟨n⟩, so the
+cross-foam "mechanism" does not hold, and the GT (2026-08 block above) had already shown
+that the watershed, not Cellpose, is the one off target. The adjacency argument that
+followed is kept as a description of how Cellpose's instance masks behave: Cellpose emits
 *instance masks* that need not tile the plane, so neighbouring bubbles separated by a
 band of label 0 fail the "two positive labels touch" adjacency test, and gap-bridging
 (D2) can only reach so far.
@@ -271,8 +314,10 @@ only informative for the learned models and for `von_neumann` under a small K.)*
 
 The MLP beats the best baseline in 3 of 9 cells — **and all three are Foam F**, by
 margins of −0.018 to −0.066 on target scales of 3.8–12.0 (i.e. 0.1–1.7%). Foam F is the
-foam with 48.2% unlabelled interior, n₀ = 2.7–3.3, 56 bubbles, **and** the foam whose
-`distance_to_evap_edge` is uninterpretable because of mask clipping — which is one of
+foam with ~~48.2%~~ *(26.9% inside the raft core; 2026-09-18)* unassigned interior, n₀ =
+2.7–3.3, 56 bubbles, **and** a foam whose `distance_to_evap_edge` is uninterpretable
+~~because of mask clipping~~ *(because the foam mask leaks off the raft — which is true of
+all three foams, 2026-09-18)* — which is one of
 the three MLP input features. A sub-1% win driven partly by a feature known to be
 meaningless on that foam is not evidence that the MLP has learned physics. In its
 other 6 cells the MLP is significantly worse than the best baseline.
@@ -312,16 +357,24 @@ beats persistence on foam Y" is a much weaker statement when X's K is smaller th
   recall is 1.0 by construction and it cannot fairly score a non-watershed detector;
   Foam F has none at all. What is measured on those foams is that their output behaves
   physically — necessary, not sufficient.
-* **Foam F's `distance_to_evap_edge` is not interpretable.** exp10 trips the foam-mask
+* ~~**Foam F's `distance_to_evap_edge` is not interpretable.** exp10 trips the foam-mask
   clipping warning (21–28% of the image border covered), so the distance transform
-  measures distance to the *frame*, not to the evaporation edge. K does not use it, but
-  it **is** an MLP/GNN input feature, so Foam F's Gate 3 cells inherit the caveat.
+  measures distance to the *frame*, not to the evaporation edge.~~ **Corrected
+  (2026-09-18):** Foam F's raft does not reach the frame; its *mask* does, because the mask
+  leaks off the raft. `distance_to_evap_edge` measures distance to that leaky outline in
+  **all three foams** (a rule built on it missed 26% / 59% / 38% of genuine rim bubbles in
+  A / C / F). K does not use it, but it **is** an MLP/GNN input feature, so every Gate 3
+  cell, not only Foam F's, inherits the caveat.
 * ~~**The n under-count is unrepaired** and biases every Cellpose K downward, more so
   for foams with more unlabelled interior.~~ **RETRACTED** — GT shows Cellpose's ⟨n⟩ is
   correct to +0.03 and the watershed's is +0.60 too high
-  (`docs/tiling_gap_investigation.md`). Foam F's 48.2% unlabelled is still roughly
+  (`docs/tiling_gap_investigation.md`). ~~Foam F's 48.2% unlabelled is still roughly
   double the GT figure, so Foam F plausibly has genuine **under-detection** — a
-  different defect, not repairable by tiling.
+  different defect, not repairable by tiling.~~ **Corrected (2026-09-18):** the 48.2% was
+  a foam-mask figure. Inside the raft core Foam F is 26.9% unassigned against 7.0% for
+  Foam A under the same detector — still four times higher, but liquid (Foam F is wettest
+  early) and missed bubbles cannot be separated without ground truth, so
+  "under-detection" is a possibility, not a finding.
 * Foam F rests on **56 bubbles**; its CIs are wide and its n₀ is 2.7–3.3.
 
 ## Reproducing

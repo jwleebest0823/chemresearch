@@ -6,6 +6,32 @@ against the 14 hand-labelled GT frames, Cellpose's neighbour count is correct to
 expansion was implemented and put through the dual constraint anyway — it fails both
 arms decisively.
 
+> **⚠ CORRECTION (2026-09-18).** The "interior" and "unlabelled" numbers in this document
+> were measured against the **foam mask**, which extends past the outermost bubbles onto
+> empty plate (13.2% of the mask lies outside the hand-labelled bubbles' hull on these 14
+> frames). Re-measured with the raft edge taken from the hand-labelled bubbles, all three
+> detectors on the same 14 frames (`dev/detector_calibration_v2.py`,
+> `qc/detector_calibration/`; `paper_figures/README.md`, Figure 5):
+>
+> | source | ⟨n⟩ all | ⟨n⟩ interior | ⟨n⟩ rim | raft interior unassigned |
+> |---|---|---|---|---|
+> | GT | 5.08 | **5.79** (was 5.66) | 4.05 | **11.4%** (was 25.3%) |
+> | Cellpose | 5.11 (+0.03) | 5.84 (+0.05) | 4.04 (−0.01) | **7.2%** (was 20.9%) |
+> | watershed (propagated) | 5.68 (+0.60) | 5.71 (−0.08) | **5.68 (+1.62)** | **11.0%** (was 12.4%) |
+>
+> What survives: Cellpose's ⟨n⟩ matches truth; the watershed's +0.60 excess is entirely at
+> the rim (now measured directly); ⟨n⟩ = 6 is the wrong target; the expansion is rejected.
+> "Cellpose is already slightly over-labelled relative to truth" also survives, more
+> strongly inside the raft (7.2% vs 11.4%). What is **withdrawn**: "a quarter of the foam
+> interior genuinely is not bubble" (inside the raft it is 11.4%), and **"the watershed's
+> 12.4% is the anomaly: it floods the whole foam mask, so every region absorbs half the
+> film beside it"** — inside the raft the watershed leaves as much space between bubbles
+> as the hand labels. Its flooding is confined to the band between the outermost bubbles
+> and the mask edge, which is where its extra contacts appear. The GT validation targets become
+> **5.08 population / 5.79 interior**, and ~38% (not ~32%) of hand-labelled bubbles are on
+> the rim. Foam F's "48.2% unlabelled" (§4) was also a foam-mask figure; inside the raft
+> core it is 26.9%.
+
 ## The ⟨n⟩ table across three foams, before and after — the criterion asked for
 
 | foam | ⟨n⟩ before | ⟨n⟩ after | n₀ before | n₀ after | unlabelled before | after |
@@ -31,10 +57,13 @@ hand-labelled masks are, and they say:
 | Cellpose, expanded | 12.6% |
 | watershed | 12.4% |
 
-**A quarter of the foam interior genuinely is not bubble** — it is film and Plateau
+~~**A quarter of the foam interior genuinely is not bubble** — it is film and Plateau
 border, and a human labeller marks it as such. Cellpose at 20.9% is already slightly
 *over*-labelled relative to truth. **The watershed's 12.4% is the anomaly**: it floods
-the whole foam mask, so every region absorbs half the film beside it.
+the whole foam mask, so every region absorbs half the film beside it.~~
+**Withdrawn 2026-09-18** (foam-mask definition; see the correction at the top). Inside the
+raft: GT 11.4%, Cellpose 7.2%, watershed 11.0% — the watershed's flooding is confined to
+the margin between the outermost bubbles and the mask edge.
 
 ## 2. ⟨n⟩ measured on ground truth, identical frames, identical adjacency
 
@@ -59,12 +88,13 @@ reason.
 ### Why ⟨n⟩ = 6 was the wrong target
 
 Euler's ⟨n⟩ → 6 holds for an **infinite or periodic** 2D tiling. These foams are finite
-rafts with a free perimeter, and **~32% of bubbles sit on that perimeter with ⟨n⟩ ≈ 4**.
-The ground truth's own population value is 5.08, and its interior value 5.66. A
-detector that reported ⟨n⟩ = 6 on this data would be wrong.
+rafts with a free perimeter, and **~32% of bubbles sit on that perimeter with ⟨n⟩ ≈ 4**
+*(38% with the raft edge, 2026-09-18)*.
+The ground truth's own population value is 5.08, and its interior value 5.66 *(5.79 with
+the raft edge)*. A detector that reported ⟨n⟩ = 6 on this data would be wrong.
 
 `# DECISION` — **the validation target for ⟨n⟩ should be the ground-truth value
-(5.08 population / 5.66 interior), not 6.** Every previous use of "⟨n⟩ → 6" as a
+(5.08 population / ~~5.66~~ 5.79 interior — raft-edge definition, 2026-09-18), not 6.** Every previous use of "⟨n⟩ → 6" as a
 success criterion on Foam A, including D2's, was measuring against a value this data
 cannot attain.
 
@@ -107,13 +137,17 @@ the watershed exceeds it (+0.60), and D2 established that raising ⟨n⟩ raises
 as the watershed being *high*, not Cellpose being *low*.
 
 This also puts a caveat on D2: its ⟨n⟩ 4.48 → 5.93 was validated as movement toward 6,
-but GT-interior is 5.66, so D2's bridging appears to over-shoot modestly on interior
+but GT-interior is 5.66 *(5.79 with the raft edge, 2026-09-18 — the over-shoot is
+smaller but still present)*, so D2's bridging appears to over-shoot modestly on interior
 bubbles and substantially at the population level. D2's other repairs (robust estimator,
 dropout filter, out-of-sample testing) are untouched by this.
 
-**Foam F is a different problem, not this one.** Its 48.2% unlabelled interior is roughly
-double the GT figure, so unlike Foams A and C it plausibly *does* have missing detections
-— but that is **under-detection, not under-tiling**, and flooding its voids would inflate
+**Foam F is a different problem, not this one.** ~~Its 48.2% unlabelled interior is roughly
+double the GT figure, so unlike Foams A and C it plausibly *does* have missing detections~~
+*(Corrected 2026-09-18: the 48.2% was a foam-mask figure. Inside the raft core Foam F is
+26.9% unassigned against 7.0% for Foam A under the same detector — still four times
+higher, but liquid and missed bubbles cannot be told apart without ground truth.)* If it
+does have missing detections, that is **under-detection, not under-tiling**, and flooding its voids would inflate
 neighbouring areas rather than find the missing bubbles. Foam F's n₀ of 2.7–3.3 remains
 unexplained and it remains the least trustworthy foam.
 

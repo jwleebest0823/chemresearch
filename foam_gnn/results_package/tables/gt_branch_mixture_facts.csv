@@ -1,0 +1,2 @@
+population,n_rows,spearman_area_n,spearman_ci_lo,spearman_ci_hi,smallest_third_n,smallest_third_n_gt6
+"GT, all measured rows",425,0.7283220681338269,0.6779384800719481,0.7672584807839484,142,0

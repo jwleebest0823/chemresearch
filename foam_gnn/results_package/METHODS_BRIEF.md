@@ -26,9 +26,26 @@ the raw image and never from Cellpose's output, so it cannot be tuned to flatter
 detector. The criterion is a majority vote and is inert between 0.10 and 0.90 (measured),
 i.e. not a tuned threshold.
 
+**The foam mask is a detection filter only, not a measure of where the foam ends.** It
+leaks past the outermost bubbles onto empty plate (11% of Foam A's mask, 8% of C's, 25% of
+F's lies outside the bubbles' convex hull; in Foam F part of that band also holds rim
+bubbles the detector missed). # DECISION (Sept. 18): every edge-based quantity — the
+perimeter/interior split, wetness measures, the "interior" neighbour count — is measured
+from the **raft edge**, the convex hull of the detected (or hand-labelled) bubbles. Two
+rules use that edge, for different purposes: for the perimeter-K results a bubble is on the
+perimeter if its **centroid** is within 2 equivalent radii of the detected-bubble hull; for
+the detector calibration (neighbour counts) a bubble is interior only if the **whole
+bubble** lies more than one median hand-labelled radius inside the hand-labelled hull, so
+that all three detectors are scored on the same pixels. The earlier foam-mask rule missed
+26% (A), 59% (C) and 38% (F) of genuine rim bubbles, and the results that used it are
+withdrawn in `SUMMARY.md` §3, §5 and §7.
+
 Detection was **not** expanded to tile the foam. That was implemented and rejected: the
-hand labels leave 25% of foam interior unlabelled (it is film and Plateau border), so
-expansion moved areas and neighbour counts *away* from truth and cost 0.12 F1.
+hand labels leave space between bubbles unlabelled (it is film and Plateau border), so
+expansion moved areas and neighbour counts *away* from truth and cost 0.12 F1. *(The
+figure previously quoted here, 25% of the foam interior, was measured over the leaky foam
+mask; inside the raft, excluding a one-radius margin, the hand labels leave 11.4%
+unassigned. The rejection does not depend on that number.)*
 
 ## Tracking
 
@@ -56,7 +73,8 @@ comparisons reported.
 The model `dA/dt = K·(n − 6)` is a line **through the origin** (a hexagon neither grows
 nor shrinks), so K is a through-origin slope. Least squares weights every measurement by
 `(n − 6)²`, which on this data gave **1.2% of rows 48% of the fit weight** — those rows
-being giant flickering bubbles — and flipped K's sign at short horizon.
+being giant flickering bubbles — and ~~flipped K's sign~~ made K fail the sign test at short
+horizon (+0.14 with an interval spanning zero; corrected Sept. 18).
 
 **Shipped estimator: the median of the per-point slopes, `median(y/x)`** — the natural
 robust analogue of a through-origin fit, since each point contributes one independent
@@ -64,7 +82,10 @@ slope through the origin. Benchmarked against a known K = 0.35 over 200 replicat
 the contamination rate measured in the data, least squares was biased −0.093 with an
 inter-replicate spread of 1.04 (i.e. unusable at a quantity of size 0.35), while the
 robust estimator was unbiased with spread 0.009. Theil–Sen is reported as an independent
-cross-check and agrees throughout. Least squares is still reported alongside, so the
+cross-check. ~~It agrees throughout.~~ *Corrected Sept. 18:* it agrees for Foam A; it is
+1–17% higher for Foam C and 24–77% higher for Foam F, outside the robust estimator's interval
+at 30 s and 150 s in both (`tables/K_fits.csv`), and it gives Foam F a steeper horizon decline (1.95×
+against 1.59×). Least squares is still reported alongside, so the
 difference is visible rather than hidden.
 
 ## Horizons and time units
@@ -81,9 +102,13 @@ assumed from configuration.
 
 ## Uncertainty and out-of-sample testing
 
-Every confidence interval is a **cluster bootstrap resampling whole bubbles**, not
-individual rows: a bubble's measurements are correlated across frames, and resampling
-rows would fake significance. 1000 resamples, 95% percentile intervals.
+Every interval on **K** is a **cluster bootstrap resampling whole bubbles**, not individual
+rows: a bubble's measurements are correlated across frames, and resampling rows would fake
+significance. 1000 resamples, 95% percentile intervals. *(Corrected Sept. 18 from "every
+confidence interval".)* Per-frame measures — wetness, circularity, detector calibration —
+are bootstrapped over **frames**, because bubbles within a frame are not independent. Event
+rates (neighbour swaps) use exact Poisson intervals, and the 0/22 false-positive rate a
+Wilson interval.
 
 Every comparative claim is **out-of-sample**. K is fitted on one epoch or session and
 scored on a held-out one; model comparisons use leave-one-**foam**-out, with a foam's
@@ -93,6 +118,10 @@ interval to favour the model — interval overlap alone is only a weak proxy.
 
 ## Reproducibility
 
-167 automated tests. The 14 ground-truth masks are checksum-verified unmodified at the
-end of every session. All figures and tables in this package regenerate from
-`build_results_package.py`.
+172 automated tests. The 14 ground-truth masks are checksum-verified unmodified at the
+end of every session. The figures and tables in this package are built by
+`build_results_package.py`, except `fig5_verified_T1_swap.png` (drawn by
+`dev/t1_event_figure.py`) and the figures shared with the revised paper, which are copied
+from `paper_figures/` (drawn by `dev/paper_figures.py`; run it before the build). The
+analysis drivers (`dev/`) and their intermediate tables (`qc/`) are local and not in the
+repository; every table a figure or caption reads is copied into `tables/`.

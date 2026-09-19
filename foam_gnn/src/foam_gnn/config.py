@@ -114,8 +114,9 @@ class BoundaryConfig:
     thresh_k: float = 0.4                          # LEGACY only (thresh_mode="mean_k_std")
     density_close_ksize: int = 41
     mask_close_ksize: int = 61
-    # Fraction of the image border the foam may cover before dist_to_edge stops being a
-    # true distance-to-evaporation-edge (the foam is clipped by the field of view).
+    # Fraction of the image border the foam MASK may cover before a warning that
+    # dist_to_edge is not distance-to-evaporation-edge (the foam is cut off by the field of
+    # view, or the mask has leaked off the raft onto the plate -- see segmentation.py).
     clip_border_warn_frac: float = 0.10
     # DECISION: pick the threshold by LOCAL STABILITY, not by value. Measured: on late
     # Foam A frames the mask area is a step function of the threshold (exp1 f175 jumps

@@ -119,26 +119,48 @@ def fig_counts() -> None:
     cp_1 = pd.read_csv(ROOT / "cellpose_results_v2" / "cellpose_out_v2" / "exp1_counts.csv")
     cp_10 = pd.read_csv(ROOT / "cellpose_results_v2" / "cellpose_out_v2" / "exp10_counts.csv")
 
-    fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.6))
+    # # DECISION (review 2026-09-18): the rank correlations in the titles are computed here
+    # from the series actually plotted. The hardcoded +0.98 and -0.995 ... -0.9993 did not
+    # match them (+0.87; the plotted Foam F window is -0.987) and are withdrawn.
+    from scipy.stats import spearmanr
+    rho_ws = float(spearmanr(ws_c["frame_index"], ws_c["n_bubbles"]).statistic)
+    fig, axes = plt.subplots(1, 2, figsize=(10.4, 5.4))
     axes[0].plot(ws_c["frame_index"] * 30.0, ws_c["n_bubbles"], color="#d62728", lw=1.6)
-    axes[0].set_title("Foam C, watershed pipeline\ncount RISES  (Spearman ρ = +0.98)",
+    axes[0].set_title(f"Foam C, watershed pipeline\ncount RISES  (Spearman ρ = {rho_ws:+.2f})",
                       fontsize=10)
-    axes[0].set_xlabel("elapsed time (s)"); axes[0].set_ylabel("bubbles detected")
-    for df, lab, col, dt in ((cp_1[cp_1.run == "run0"], "Foam A (run0)", FOAM_COL["A"], 30.0),
+    axes[0].set_xlabel("elapsed time (s)"); axes[0].set_ylabel("bubbles detected (count)")
+    rhos = []
+    for df, lab, col, dt in ((cp_1[cp_1.run == "run0"], "Foam A (first run)", FOAM_COL["A"], 30.0),
                              (cp_c, "Foam C", FOAM_COL["C"], 30.0),
-                             (cp_10[cp_10.frame <= 225], "Foam F (window)", FOAM_COL["F"], 10.0)):
-        x = (df["frame"] if "frame" in df else df["frame_index"]) * dt
+                             (cp_10[cp_10.frame <= 225], "Foam F (frames 0-225)", FOAM_COL["F"], 10.0)):
+        fr = df["frame"] if "frame" in df else df["frame_index"]
         y = df["n_objects"] if "n_objects" in df else df["n_bubbles"]
-        axes[1].plot(x, y, label=f"{lab}, {dt:.0f} s/frame", color=col, lw=1.6)
-    axes[1].set_title("Cellpose detection\ncount FALLS in every foam  (ρ = −0.995 … −0.9993)",
-                      fontsize=10)
-    axes[1].set_xlabel("elapsed time (s)"); axes[1].set_ylabel("bubbles detected")
+        rhos.append(float(spearmanr(fr, y).statistic))
+        axes[1].plot(fr * dt, y, label=f"{lab}, {dt:.0f} s/frame", color=col, lw=1.6)
+    if max(rhos) >= 0:
+        raise SystemExit("FAIL: a Cellpose count curve does not fall; the S2 title says it does")
+    axes[1].set_title("Cellpose detection\ncount FALLS in every foam  "
+                      f"(ρ = {max(rhos):.3f} … {min(rhos):.4f})", fontsize=10)
+    axes[1].set_xlabel("elapsed time (s)"); axes[1].set_ylabel("bubbles detected (count)")
     axes[1].legend(frameon=False, fontsize=8)
-    fig.suptitle("The same foam, two detectors: a physically impossible trend, fixed",
-                 fontsize=11)
+    fig.suptitle("Supplementary Figure S2. Foam C under two detectors: a physically impossible "
+                 "trend, fixed", fontsize=11)
     fig.tight_layout()
+    fig.subplots_adjust(bottom=0.27)
+    fig.text(0.5, 0.015,
+             "Bubbles detected per frame against elapsed time. Left: the propagating watershed "
+             "pipeline's region count on Foam C rises,\nwhich a coarsening foam cannot do; the "
+             "pipeline fragments bubbles (it trips the project's own fragmentation guard).\n"
+             "Right: Cellpose counts on the three foams analysed, all falling monotonically. ρ is "
+             "the Spearman rank correlation of count\nwith frame for the series drawn. Foam F is "
+             "shown for its pre-registered window (frames 0-225, count at least 20).",
+             ha="center", fontsize=8.2, style="italic")
     fig.savefig(FIG / "fig2_count_curves.png", dpi=160)
     plt.close(fig)
+    pd.DataFrame({"series": ["Foam C watershed", "Foam A Cellpose (first run)", "Foam C Cellpose",
+                             "Foam F Cellpose (frames 0-225)"],
+                  "spearman_frame_vs_count": [rho_ws] + rhos}).to_csv(
+        TAB / "count_curve_spearman.csv", index=False)
 
     ws_c.assign(detector="watershed", foam="C").to_csv(TAB / "counts_foamC_watershed.csv",
                                                        index=False)
@@ -159,7 +181,7 @@ def fig_leverage() -> None:
     weight = np.array([14.8, 30.7, 6.3, 48.2])
     pct_rows = 100 * rows / rows.sum()
     x = np.arange(len(strata))
-    fig, ax = plt.subplots(figsize=(7.4, 5.0))
+    fig, ax = plt.subplots(figsize=(7.4, 5.8))
     ax.bar(x - 0.2, pct_rows, 0.4, label="% of measurements", color="#8da0cb")
     ax.bar(x + 0.2, weight, 0.4, label="% of least-squares fit weight", color="#d62728")
     for i, (r, w) in enumerate(zip(pct_rows, weight)):
@@ -172,17 +194,20 @@ def fig_leverage() -> None:
     ax.set_xticks(x); ax.set_xticklabels(strata, fontsize=9)
     ax.set_ylabel("percent  (log scale)")
     ax.set_xlabel("bubble's deviation from six neighbours,  |n − 6|")
-    ax.set_title("Why least squares gave the wrong sign\n"
+    ax.set_title("Why least squares failed the sign test at the 30 s horizon\n"
                  "the rarest stratum (1.2% of measurements) carries 48% of the fit weight",
                  fontsize=10.5)
     ax.legend(frameon=False, loc="upper center")
-    fig.subplots_adjust(bottom=0.26)
-    fig.text(0.5, 0.02,
-             "Caption: all four strata shown. Least squares weights each measurement by "
-             "(n−6)², so the\n86 measurements with |n−6| ≥ 10 — 1.2% of the data — "
-             "dominate the fit. The y-axis is\nlogarithmic: on a linear axis the two "
-             "right-hand row-count bars are invisible.",
-             ha="center", fontsize=8.5, style="italic")
+    fig.subplots_adjust(bottom=0.33)
+    fig.text(0.5, 0.015,
+             "Foam A, 7106 measurements from the watershed pipeline's trusted set (a detector "
+             "since replaced by Cellpose),\n30 s horizon. Least squares weights each measurement "
+             "by (n−6)², so the 86 measurements with |n−6| ≥ 10 —\n1.2% of the data, mostly "
+             "segmentation flicker — dominate the fit and pull K from about +0.34 to +0.14,\n"
+             "with a 95% interval spanning zero (a failed sign test, not a negative K). Every "
+             "stratum's own K is positive\n(+0.34, +0.22, +0.06, +0.05). The y-axis is "
+             "logarithmic: on a linear axis the two right-hand row-count bars are invisible.",
+             ha="center", fontsize=8.3, style="italic")
     fig.savefig(FIG / "fig3_leverage.png", dpi=160)
     plt.close(fig)
     pd.DataFrame({"stratum": strata, "n_rows": rows, "pct_rows": pct_rows,
@@ -192,44 +217,26 @@ def fig_leverage() -> None:
 
 
 def fig_n_calibration() -> None:
-    src = ["hand-labelled GT", "Cellpose", "watershed"]
-    n_all = [5.08, 5.11, 5.67]
-    n_int = [5.66, 5.76, 5.71]
-    unlab = [25.3, 20.9, 12.4]
-    x = np.arange(3)
-    fig, axes = plt.subplots(1, 2, figsize=(10.4, 5.0))
-    axes[0].bar(x - 0.2, n_all, 0.4, label="all bubbles", color="#8da0cb")
-    axes[0].bar(x + 0.2, n_int, 0.4, label="interior bubbles only", color="#66c2a5")
-    axes[0].axhline(6, color="k", ls="--", lw=1)
-    axes[0].text(2.45, 6.05, "6 (infinite tiling)", fontsize=8, ha="right")
-    axes[0].set_xticks(x); axes[0].set_xticklabels(src, fontsize=9)
-    axes[0].set_ylabel("⟨n⟩   mean neighbours per bubble (count)")
-    axes[0].set_ylim(0, 6.8)
-    axes[0].legend(frameon=False, fontsize=8)
-    axes[0].set_title("Cellpose reproduces hand-labelled ⟨n⟩ to +0.03;\n"
-                      "the watershed over-counts by +0.60", fontsize=10)
-    axes[1].bar(x, unlab, 0.5, color=["#444444", "#1f77b4", "#d62728"])
-    for i, v in enumerate(unlab):
-        axes[1].text(i, v + 0.5, f"{v:.1f}%", ha="center", fontsize=9)
-    axes[1].set_xticks(x); axes[1].set_xticklabels(src, fontsize=9)
-    axes[1].set_ylabel("% of foam interior not assigned to any bubble")
-    axes[1].set_ylim(0, 30)
-    axes[1].set_title("Unassigned interior area\n(how generously each method draws "
-                      "bubble boundaries)", fontsize=10)
-    fig.subplots_adjust(bottom=0.28)
-    fig.text(0.5, 0.02,
-             "Caption: RIGHT PANEL is the percentage of foam-interior pixels that no "
-             "method assigned to any\nbubble — a measure of how generously each draws "
-             "bubble boundaries, NOT a film-thickness\nmeasurement (the pipeline defines "
-             "no film thickness). The hand labels leave the most unassigned;\nthe "
-             "watershed the least, which is why it over-counts neighbours in the left "
-             "panel.",
-             ha="center", fontsize=8.5, style="italic")
-    fig.savefig(FIG / "fig4_n_calibration.png", dpi=160)
-    plt.close(fig)
-    pd.DataFrame({"source": src, "mean_n_all": n_all, "mean_n_interior": n_int,
-                  "unassigned_interior_pct": unlab}).to_csv(TAB / "n_calibration.csv",
-                                                            index=False)
+    """Detector calibration = paper Figure 5, copied rather than redrawn, so the package and
+    the paper cannot disagree. The table is built from the same measurement files.
+
+    # DECISION (Sept. 18): the previous version hardcoded 5.08/5.11/5.67 etc. The watershed
+    # row came from a different frame set and the "interior" was defined from the foam
+    # mask, which leaks off the raft. Both are replaced by dev/detector_calibration_v2.py:
+    # identical 14 frames for every source, raft edge = convex hull of the hand labels.
+    """
+    src = ROOT / "paper_figures" / "fig5_detector_calibration.png"
+    S = QC / "detector_calibration" / "summary.csv"
+    P = QC / "detector_calibration" / "paired_vs_gt.csv"
+    for f in (src, S, P):
+        if not f.is_file():
+            raise FileNotFoundError(f"missing {f.relative_to(ROOT).as_posix()} -- run "
+                                    "dev/detector_calibration_v2.py and dev/paper_figures.py")
+    shutil.copy(src, FIG / "fig4_n_calibration.png")
+    S, P = pd.read_csv(S), pd.read_csv(P)
+    P = P.rename(columns={"diff": "diff_vs_GT", "ci_lo": "diff_ci_lo", "ci_hi": "diff_ci_hi"})
+    T = S.merge(P, on=["measure", "source"], how="left")
+    T.to_csv(TAB / "n_calibration.csv", index=False)
 
 
 def tables_misc() -> None:
@@ -254,38 +261,83 @@ def copy_figures() -> None:
         p = QC / "f_subsample" / name
         if p.is_file():
             shutil.copy(p, TAB / dst)
-    # Foam morphology (wet vs dry) and the K-fragility battery.
-    # See docs/wetness_and_k_fragility.md; built by dev/foam_wetness.py + dev/k_robustness.py.
-    for src, dst in ((QC / "wetness" / "fig_wetness_three_foams.png",
-                      FIG / "fig8_foam_wetness.png"),
-                     (QC / "wetness" / "fig_foamC_montage.png",
-                      FIG / "fig9_foamC_frames.png"),
-                     (QC / "k_robustness" / "fig_K_by_period.png",
-                      FIG / "fig10_K_by_period.png"),
-                     (QC / "k_robustness" / "fig_exclusions_and_fragility.png",
-                      FIG / "fig11_exclusions_and_fragility.png"),
-                     (QC / "wetness" / "wetness_summary.csv",
+    # Paper figures (paper_figures/, built by dev/paper_figures.py) are copied, not
+    # redrawn, so the package and the paper cannot disagree. Required: fail loudly.
+    PF = ROOT / "paper_figures"
+    for src, dst in ((PF / "fig1_K_by_period.png", FIG / "fig10_K_by_period.png"),
+                     (PF / "fig2_n0_zero_crossing.png", FIG / "fig12_n0_zero_crossing.png"),
+                     (PF / "fig3_fragility.png", FIG / "fig11_fragility.png"),
+                     (PF / "fig4_wetness.png", FIG / "fig8_foam_wetness.png"),
+                     (PF / "figS3_junction_measurement.png",
+                      FIG / "fig13_junction_measurement.png"),
+                     (PF / "figS4_circularity_measurement.png",
+                      FIG / "fig14_circularity_measurement.png"),
+                     # raft-edge wetness measures (docs/verification_wetness_t1.md)
+                     (QC / "verify_junction" / "raft_core_summary.csv",
                       TAB / "foam_wetness_summary.csv"),
+                     # perimeter = within 2 r_eq of the RAFT edge (convex hull of bubbles);
+                     # the foam-mask definition is withdrawn (dev/raft_edge_distance.py)
+                     (QC / "k_robustness" / "exclusions_raft_edge.csv",
+                      TAB / "K_exclusion_configs.csv"),
+                     (QC / "k_robustness" / "fragility_v2.csv", TAB / "K_fragility.csv"),
+                     (QC / "k_robustness" / "fragility_v2_estimator_within_regime.csv",
+                      TAB / "K_fragility_estimator_by_regime.csv"),
+                     (QC / "k_robustness" / "regime_share_by_horizon.csv",
+                      TAB / "K_foamF_regime_share_by_horizon.csv"),
+                     # Every other table a paper figure or caption reads. qc/ is gitignored,
+                     # so without these copies those numbers would have no committed source.
+                     (QC / "k_robustness" / "task4_fragility.csv",
+                      TAB / "K_estimator_stability_pooled.csv"),
+                     (QC / "gt_k" / "n0_binned_medians.csv", TAB / "n0_binned_medians.csv"),
+                     (QC / "gt_k" / "gt_min_area_sweep.csv",
+                      TAB / "K_ground_truth_min_area_sweep.csv"),
+                     (QC / "gt_k" / "gt_min_area_sweep_range.csv",
+                      TAB / "K_ground_truth_min_area_sweep_range.csv"),
+                     (QC / "gt_k" / "gt_branch_mixture_facts.csv",
+                      TAB / "gt_branch_mixture_facts.csv"),
+                     (QC / "verify_junction" / "raft_core_measures_per_frame.csv",
+                      TAB / "foam_wetness_per_frame.csv"),
+                     (QC / "verify_circularity" / "scalefree_calibration.csv",
+                      TAB / "circularity_calibration.csv"),
+                     (QC / "verify_circularity" / "scalefree_medians.csv",
+                      TAB / "circularity_medians.csv"),
+                     (QC / "detector_calibration" / "per_frame.csv",
+                      TAB / "n_calibration_per_frame.csv"),
+                     (QC / "detector_calibration" / "gt_vs_preseed_summary.csv",
+                      TAB / "gt_inheritance_from_watershed_preseed.csv"),
+                     (QC / "detector_calibration" / "rim_identical_degrees_summary.csv",
+                      TAB / "n_calibration_rim_identical.csv"),
+                     (QC / "t1_crossfoam" / "first_vs_last_third.csv",
+                      TAB / "t1_first_vs_last_third.csv"),
+                     (QC / "t1_crossfoam" / "rates_by_period.csv", TAB / "t1_rates_by_period.csv")):
+        if not src.is_file():
+            raise FileNotFoundError(f"missing {src.relative_to(ROOT).as_posix()}")
+        shutil.copy(src, dst)
+    # Foam C frames and the K-robustness tables that were not affected by the Sept. 18
+    # corrections. See docs/wetness_and_k_fragility.md.
+    for src, dst in ((QC / "wetness" / "fig_foamC_montage.png",
+                      FIG / "fig9_foamC_frames.png"),
                      (QC / "k_robustness" / "task2_K_by_period.csv",
                       TAB / "K_by_period.csv"),
                      (QC / "k_robustness" / "task2_sign_diagnostics.csv",
                       TAB / "K_sign_diagnostics.csv"),
                      (QC / "k_robustness" / "task3a_min_area_sweep.csv",
                       TAB / "K_min_area_sweep.csv"),
-                     (QC / "k_robustness" / "task3b_exclusions.csv",
-                      TAB / "K_exclusion_configs.csv"),
-                     (QC / "k_robustness" / "task4_fragility.csv",
-                      TAB / "K_fragility.csv"),
                      # ground-truth validation of K and of the n=6 zero-crossing
                      # (docs/gt_k_validation.md; dev/gt_k_validation.py + gt_n0_analysis.py)
-                     (ROOT / "paper_figures" / "figD_n0_zero_crossing.png",
-                      FIG / "fig12_n0_zero_crossing.png"),
                      (QC / "gt_k" / "n0_and_branch.csv", TAB / "n0_and_branch.csv"),
                      (QC / "gt_k" / "gt_k_summary.csv", TAB / "K_ground_truth_vs_detector.csv"),
                      (QC / "gt_k" / "gt_k_by_size_tercile.csv",
                       TAB / "K_ground_truth_by_size.csv")):
         if src.is_file():
             shutil.copy(src, dst)
+    # Superseded Sept. 18: the combined exclusions/fragility figure used the foam-mask
+    # perimeter rule (withdrawn). Remove the stale copy.
+    for stale in ("fig11_exclusions_and_fragility.png",):
+        p = FIG / stale
+        if p.exists():
+            p.unlink()
+            print(f"  removed superseded figure: {stale}")
     # fig5 (T1 detector-count) and fig7 (old centroid-line T1) are retired: they
     # documented code state, not physics. Remove any stale copies.
     for stale in ("fig5_t1_counts.png", "fig7_t1_candidates_foamA.png"):

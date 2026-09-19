@@ -1,5 +1,24 @@
 # Does small-bubble detection error bias K? Tested against hand-labelled truth
 
+> **Corrections (2026-09-18, adversarial review of the paper figures).** Two statements
+> below are narrowed, and left visible where they occur:
+>
+> 1. **"A real asymmetry of 1.24× exists in the truth"** — not established. The hand-labelled
+>    branch ratio is 1.24× with 95% interval [0.95, 1.60] resampling bubbles and [0.95,
+>    1.64] resampling whole frame pairs; both include 1 (no asymmetry), which fails this
+>    project's own both-schemes standard (`dev/gt_n0_analysis.py`). Cellpose's 2.42×
+>    [1.95, 3.13] does exclude 1 and does not overlap the hand-labelled interval, so "the
+>    detector widens the gap" stands. `qc/gt_k/n0_and_branch.csv` now carries the ratio
+>    intervals.
+> 2. **"The sensitivity is a real property of the data" / the branch mixture "makes the
+>    absence of a plateau intelligible"** — narrowed. The size dependence is present in the
+>    hand labels too (relative range 0.15 [0.06, 0.31], `qc/gt_k/gt_min_area_sweep_range.csv`),
+>    so it is not only detection error; but the hand-labelled sweep *does* plateau and the
+>    detected sweep on the same frames does not (0.25 [0.03, 0.62]; not resolved from 0.15),
+>    so the missing plateau is attributed to the detector's wider branch gap, as the verdict
+>    below already says, not to the mixture. Equal pooled K does not by itself show the size
+>    dependence is detector-free, and all of this is Foam A only.
+
 **Verdict: the reported K values do NOT need revision, and the min-area sensitivity is a
 real property of the data — it is present in the hand-labelled ground truth, where there
 is no detection error at all.**
@@ -125,8 +144,9 @@ Measured on the identical matched bubbles:
 | **ground truth** | +0.3499 [+0.3166, +0.4222] | +0.4333 [+0.3664, +0.5332] | **1.24×** |
 | Cellpose | +0.2887 [+0.2332, +0.3249] | +0.6998 [+0.5415, +0.8334] | **2.42×** |
 
-**Cellpose roughly doubles the branch asymmetry.** A real asymmetry of 1.24× exists in the
-truth; the detector inflates it to 2.42×.
+**Cellpose roughly doubles the branch asymmetry.** ~~A real asymmetry of 1.24× exists in the
+truth;~~ the detector inflates it to 2.42× *(corrected 2026-09-18: the hand-labelled 1.24× has
+interval [0.95, 1.60], which includes no asymmetry — see the note at the top)*.
 
 ### Why this produces the min-area sensitivity
 
@@ -137,9 +157,11 @@ badly measured bubbles; **it shifts the population from the low-K n < 6 branch t
 high-K n > 6 branch.** K rises because the mixture changes, and it rises further under
 Cellpose because Cellpose's branch gap is twice as wide.
 
-This is a better account than "small bubbles are measured badly", and it makes the absence
+This is a better account than "small bubbles are measured badly", ~~and it makes the absence
 of a plateau intelligible: the mixture shifts continuously with the cut, so there is no
-threshold at which it stops.
+threshold at which it stops~~ *(withdrawn 2026-09-18: the hand-labelled sweep has the same
+mixture and does plateau, so the missing plateau belongs to the detector's wider gap, not to
+the mixture)*.
 
 ## 5. Foam C — consistent with the mechanism, not established
 

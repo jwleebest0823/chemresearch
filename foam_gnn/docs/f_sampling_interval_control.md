@@ -256,9 +256,22 @@ identity layer. This is why the sub-sampled arm is worse rather than better.
   They come from a degraded identity layer, and their phase-to-phase spread (2.7× at
   30 s) shows a 30 s cadence cannot pin K on this foam at all.
 * **Foam F remains the weak foam, for the reasons already documented** — 56 bubbles, wide
-  intervals, 48% of its interior unlabelled — and this session adds one: its K genuinely
+  intervals, ~~48% of its interior unlabelled~~ — and this session adds one: its K genuinely
   varies with horizon in a way Foams A and C's does not, which is a property of the foam
   or its measurement, not of its clock.
+
+  > **Corrected 2026-09-18.** (i) The 48% was measured over the foam mask, which leaks off
+  > Foam F's raft (25% of the mask lies outside it); inside the raft core Cellpose leaves
+  > 26.9% [23.6, 30.8] unassigned, about four times Foam A's and three times Foam C's, and whether that is
+  > liquid or missed bubbles cannot be told apart without ground truth
+  > (`docs/verification_wetness_t1.md`). (ii) The horizon dependence now has a measured
+  > explanation: longer horizons draw more of their samples from Foam F's wet first third
+  > (52% at 30 s, 54% at 150 s, 64% at 600 s), where K is negative. Restricted to the
+  > drier remainder, Foam F's K is flat across horizons (+1.57, +1.59, +1.68; relative
+  > range 0.07 [0.02, 0.43], 34 bubbles). The 1.59× spread stands as a description of the
+  > pooled number; it reflects two regimes being averaged, not a horizon-dependent law
+  > (`qc/k_robustness/regime_share_by_horizon.csv`,
+  > `qc/k_robustness/fragility_v2_estimator_within_regime.csv`).
 * **A methodological point worth keeping.** Sub-sampling looks like a clean single-variable
   experiment and is not one, because every frame-counted constant downstream silently
   changes meaning and the tracker's job gets harder. The phase-thinned control is the
