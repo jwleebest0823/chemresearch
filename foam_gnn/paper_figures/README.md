@@ -177,6 +177,17 @@ described by size ("finest Foam C", "coarsest Foam F"), not as "dry"/"wet".
 liquid from missed bubbles) and circularity (the pixel-counting perimeter scores smaller
 objects as rounder; with a scale-free perimeter Foams A and F agree, S4).
 
+**The wetness–K relationship was tested directly (Sept. 19) and the caption's wording is
+what survives.** K's sign change at 402 s [348, 469] does fall inside the wet window, so
+the timing coincidence in this figure is measured. It is not a mechanism: across Foam F's
+five usable windows K's rank order is exactly elapsed-time order, so the K–wetness
+correlation is identically the **time–wetness** correlation and says nothing about K, and K
+keeps rising 31% [2%, 69%] after the junction measure plateaus, over a stretch where its
+wetness change is not resolvable. The two wetness measures also disagree about when drying
+ends: at 590 s the junction measure is 89% decayed and the brightness measure 53%, and the
+latter keeps falling to the end of the sequence. No figure is drawn from a five-point
+correlation that cannot be resolved. → `docs/foamF_wetness_k_test.md`
+
 **Withdrawn from the previous version (`figB`):** junction half-width A 1.04 / C 1.14 /
 F 5.68 and "five times"; the drying trend 6.10 → 3.75; "Foam C is dry on every measure";
 the Laplace-pressure explanation of circularity.

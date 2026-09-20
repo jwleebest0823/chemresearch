@@ -345,12 +345,31 @@ intervals over frames):
 A's for the rest of the sequence. The earliest junction values are upper bounds — some of
 those junctions enclose small bubbles the detector missed — but the brightness fraction,
 which does not rely on outlines inside the raft, also falls over the same ten minutes (0.53
-to 0.38). That wet window falls inside the first third of the sequence (0–12 min), **where
+to 0.38) — though it is only about half decayed by then and keeps falling to 0.25 by the
+end, so the two measures do not agree on when drying finishes. That wet window falls inside
+the first third of the sequence (0–12 min), **where
 Foam F's K is negative** (next subsection). Foam C sits with A on the median junction and
 between A and F by the 95th percentile, and it too starts wetter (0.43 at frame 0), mostly
 settling within about eight minutes — yet its first-third K is positive (+0.20), so an early
 wet phase does not by itself make K negative. So: **Foam C is intermediate-to-dry, and Foam
 F is the wettest foam, most of all in its early phase.** → `tables/foam_wetness_per_frame.csv`
+
+**Does wetness actually drive K? Tested directly on Sept. 19 — the timing matches, but
+wetness is not sufficient.** Foam F's K and wetness were measured in matched time windows
+(five usable; any window with fewer than 20 tracked bubbles was refused). K crosses zero at
+**402 s** [348, 469], inside the wet window — so the coincidence in time is now measured
+rather than eyeballed. But the correlation itself carries no information: K's rank order
+across windows is exactly elapsed-time order, so the K–wetness rank correlation is
+*identically* the **time–wetness** correlation — it restates how tightly wetness tracks the
+clock (|ρ| = 0.83–1.00 in every foam) and says nothing about K. The test that does inform:
+**after Foam F's junction size comes within 10% of its plateau, K rises a further 31%
+[2%, 69%] while its own wetness change over that stretch is not resolvable from zero**
+(−0.008 [−0.015, +0.001]). The same test on Foam C gives 0.63× [0.52, 0.74] over a small
+but resolved drying — K *falling* as the foam dries, the opposite direction to Foam F. **So
+K moves without a detectable wetness change in one foam, and against the wetness direction
+in the other.** Separating wetness from elapsed time would need a foam that re-wets, or an
+experiment that sets humidity independently of foam age; no existing foam does.
+→ `docs/foamF_wetness_k_test.md`
 
 ### Wet or dry, K is not stable — none of the three foams has a constant K
 

@@ -253,12 +253,25 @@ sign of a fit that assumes it. Two things follow, and both matter:
 
 * **Foam F's pooled K of +0.5995 averages across a sign change and is not a meaningful
   single number.** It should not be reported as one.
-* **The wetness mechanism is supported for Foam F specifically** — K is negative exactly
+* ~~**The wetness mechanism is supported for Foam F specifically**~~ — K is negative exactly
   where the foam is wettest, and the sign diagnostics show the route — **but it cannot be
   the general explanation**, because ~~Foams A and C are dry throughout~~ Foam A is dry
   throughout and Foam C, although it starts wet (junction 0.43 at frame 0), keeps a positive
   K in its first third (+0.200), and both foams' K still moves by 41% and 38% of its own
   value across the sequence. *(Corrected 2026-09-18.)*
+
+  > **Narrowed 2026-09-19 after testing it directly** (`docs/foamF_wetness_k_test.md`).
+  > What holds is the **coincidence in time**: K crosses zero at 402 s [348, 469], inside
+  > the wet window. What does not hold is "mechanism". Across Foam F's five usable time
+  > windows K's rank order is exactly elapsed-time order, so the K–wetness rank correlation
+  > is identically the **time–wetness** correlation and carries no independent information
+  > about K; with five windows no correlation short of perfectly monotone can reach p < 0.05
+  > anyway. And after Foam F's junction size comes within 10% of its plateau, **K rises a
+  > further 31% [2%, 69%]** over a stretch where its wetness change is not resolvable from
+  > zero. The same test on Foam C gives 0.63× [0.52, 0.74] over a small but resolved
+  > drying — K falling as it dries, the opposite direction. Wetness is therefore not
+  > sufficient to explain K's variation, and within Foam F wetness and elapsed time cannot
+  > be separated at all.
 
 ---
 
