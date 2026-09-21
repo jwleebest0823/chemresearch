@@ -320,6 +320,40 @@ drivers `dev/t1_crossfoam.py`, `dev/t1_rates.py`; full account in
 
 ---
 
+## Figures 6 and 7 — K per bubble, mapped across the raft (added; not yet in the paper)
+
+Built by `dev/per_bubble_figures.py`. Both re-check the values their titles assert and stop
+if those have changed. Full account, with the staged protocol and its stop points, in
+`docs/per_bubble_k_map.md`; the pre-registration is `docs/per_bubble_preregistration.md`
+(committed `9281645`, **before** the primary test was run).
+
+### Figure 6 — `fig6_per_bubble_map.png`
+
+The spatial map. Bubbles at their mean raft-relative positions (in units of the raft's
+effective radius, because the raft shrinks 17% over Foam A's first run), coloured by `K_i`
+on a scale symmetric about each foam's pooled K; rim bubbles (topological layer 1) as
+squares; the raft edge of a mid-sequence frame dashed. Foam A 146 bubbles, C 413, F 53,
+all at the 30 s horizon with ≥ 10 usable measurements each.
+
+### Figure 7 — `fig7_per_bubble_radial_profile.png`
+
+Foam A's radial profile, and the reason the result is negative. Interior bubbles (layer ≥ 2,
+n = 84) branch-adjusted; equal-count ρ-quintile medians with angular-sector block-bootstrap
+intervals; the fitted Theil-Sen slope **β = −0.278 [−0.437, −0.068], permutation p = 0.007**;
+and two bands overlaid — the Stage-2 null band (no true gradient: [−0.055, +0.059]) and the
+**detector band measured directly against hand labels** (β_det = −0.362, 95% [−0.769,
++0.048]). The fitted line lies inside the detector band and along its centre.
+
+**Caption claim, guarded in code:** the measured gradient is resolved and is larger than the
+minimum detectable effect (0.081), but is **smaller than, and in the same direction as, the
+detector's own position-dependent neighbour-count error**, so it cannot be separated from
+measurement artifact. Detector-corrected, β = +0.084 [−0.341, +0.523].
+
+Sources: `qc/per_bubble_k/{per_bubble,stage2_bands,stage2_mde,gt_contrast}.csv`,
+`stage3_primary.json`, `stage4_secondaries.csv`.
+
+---
+
 ## Standing caveat
 
 Foam C's only hand labels are two frames made by deleting regions from a detector's output

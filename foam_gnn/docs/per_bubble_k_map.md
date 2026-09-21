@@ -416,6 +416,260 @@ Theil-Sen and binned-median estimates target the systematic part that survives t
 averaging, which is why they are quoted ahead of OLS. The top area decile's synthetic noise
 is ~12% light.
 
-## Stage 3 — pending (pre-registration to be written and committed first)
+## Stage 3 — the pre-registered primary test
 
-## Stage 4 — pending
+Run exactly as `docs/per_bubble_preregistration.md` specifies. That document was committed
+at **`9281645`, before this analysis was run**; the decision rule below is evaluated
+mechanically against thresholds copied from it, not chosen here.
+
+Population: **Foam A, interior (median layer ≥ 2), m ≥ 10, 30 s horizon — 84 bubbles**,
+ρ spanning 0.114–0.874, 59 shrinking-branch / 25 growing-branch.
+
+### 3.1 The primary statistic
+
+    beta = -0.2781  px^2 s^-1 per unit rho
+
+| | |
+|---|---|
+| 95% CI, angular-sector block bootstrap (8 sectors, pre-registered) | **[−0.4367, −0.0679]** |
+| 95% CI, ordinary bubble bootstrap | [−0.5202, −0.0850] |
+| permutation p (sector × branch strata, 5,000) | **0.0070** |
+| Moran's I on residuals (k-NN, k = 6) | **+0.1254** (E = −0.0120, **p = 0.021**) |
+
+β < 0 means **K falls toward the rim** — higher in the middle of the raft.
+
+### 3.2 Every other way it could have been computed
+
+| variant | β |
+|---|---|
+| **Theil-Sen, branch-adjusted (PRIMARY)** | **−0.2781** |
+| Theil-Sen, unadjusted | −0.3134 |
+| WLS + branch covariate (secondary) | −0.1794, CI **[−0.3154, +0.0443]** |
+| WLS, no branch covariate | −0.2380 |
+| WLS, unweighted | −0.3675 |
+| Spearman ρ (branch-centred K) | −0.2703 |
+| within the n < 6 branch (n = 59) | −0.3288 |
+| within the n > 6 branch (n = 25) | −0.2201 |
+| slope through the five ρ-quintile medians | −0.144 |
+
+**The sign is stable across all nine.** The magnitude is not: it ranges from −0.14 to −0.37
+depending on the summary. Over the observed ρ span this is a centre-to-rim fall of
+**0.086 px² s⁻¹** (quintile medians, innermost minus outermost) to **0.211** (Theil-Sen ×
+span) — i.e. **23% to 58% of K0**. The 1/σ² weights concentrate hard (Kish ESS 37.6 of 84),
+which is why the unweighted and weighted WLS variants differ by a factor of two.
+
+**The secondary does not resolve it.** The WLS + covariate interval [−0.3154, +0.0443]
+includes zero. The pre-registered rule required only sign stability from the secondary, and
+that holds; but it is reported here plainly rather than buried.
+
+### 3.3 Sector-count sensitivity — the interval is not stable, the p-value is
+
+| N_SECTORS | β | 95% block CI | perm p |
+|---|---|---|---|
+| 4 | −0.2781 | [−0.4047, **+0.0703**] | 0.0205 |
+| 6 | −0.2781 | [−0.4910, **+0.0025**] | 0.0085 |
+| **8 (pre-registered)** | −0.2781 | **[−0.4367, −0.0679]** | 0.0045 |
+| 12 | −0.2781 | [−0.5177, −0.0606] | 0.0205 |
+
+**At 4 and 6 sectors the interval includes zero.** With only 4 or 6 blocks a block bootstrap
+is very coarse, and 8–12 is the usual range, but the honest statement is that *the exclusion
+of zero depends on the blocking choice while the permutation p does not* (0.0045–0.0205
+throughout).
+
+### 3.4 Decision rule A — is the measured gradient resolved?
+
+| criterion | |
+|---|---|
+| 95% block CI excludes 0 | **PASS** |
+| permutation p < 0.05 | **PASS** |
+| \|β\| > pure null band (0.0587) | **PASS** |
+| branch-stratified slope agrees in sign | **PASS** |
+| sign stable across sectors and WLS | **PASS** |
+
+**→ RESOLVED.** A radial gradient in `K_i` is present in the measured data.
+
+### 3.5 Decision rule B — is it distinguishable from the detector?
+
+**|β| = 0.278, against a detector band whose point estimate is 0.362 and whose interval
+reaches 0.769.**
+
+> **→ INDISTINGUISHABLE from the detector's position-dependent neighbour-count error.**
+
+The whole measured gradient is smaller than the artifact Stage 2 measured directly against
+hand labels, and points in the **same direction** as it (both negative). Figure 7 shows the
+fitted line lying essentially on top of the detector band's central line and wholly inside
+that band.
+
+### 3.6 Decision rule C — the detector-corrected estimate (mandatory)
+
+`beta_det` is a **signed bias**, not noise. The detector biases β downward by ≈ 0.36, so:
+
+    beta_corr = beta_obs - beta_det = -0.2781 - (-0.3620) = +0.0839
+                95% (convolved)      [-0.3410, +0.5231]
+
+**Once the measured detector bias is removed, the best estimate of the true gradient is
++0.08 — near zero, with an interval that spans from a strong inward fall to a stronger
+outward rise.** The sign of the *physical* gradient is not determined by this experiment.
+
+Caveats: `beta_det` comes from 7 frame pairs of single measurements on a GT-layer-defined
+population, while `beta_obs` uses 99 frames of per-bubble medians; the correction assumes
+the detector bias measured on those 14 frames applies across the sequence.
+
+### 3.7 Decision rule D — the null, quantified
+
+The minimum detectable gradient is **β = 0.081** (80% power vs the pure null), i.e.
+**+0.062 px² s⁻¹ centre-to-rim = 17% of K0**; **0.091** against the operative null. The
+measured β = −0.278 is well above this, so **this is not a power failure** — the pipeline
+saw a gradient it was easily able to see. It is a *calibration* failure: the instrument's
+own error in the same coordinate is larger than the signal.
+
+### 3.8 Moran's I — residual spatial dependence survives
+
+`I = +0.1254` against `E = −0.0120`, p = 0.021. Neighbouring interior bubbles still have
+correlated residuals after the radial and branch terms are removed. The angular-sector
+block bootstrap absorbs dependence at the sector scale but not at the few-bubble scale, so
+**the intervals above are, if anything, still optimistic** — which reinforces §3.3's
+finding that the exclusion of zero is fragile.
+
+---
+
+## Stage 4 — secondary analyses (exploratory)
+
+Benjamini–Hochberg across the six pre-registered secondaries. **None of these revises
+Stage 3.**
+
+| # | test | statistic | 95% interval | p | BH p |
+|---|---|---|---|---|---|
+| S1 | Foam A rim vs interior, branch-centred | +0.0397 | [−0.0166, +0.1471] | 0.0942 | 0.2355 |
+| S2 | **Foam C interior gradient** (310 bubbles) | **−0.0000** | **[−0.0428, +0.0485]** | 0.9272 | 0.9272 |
+| S3 | Foam F interior gradient (23 bubbles) | +1.6898 | [−0.3687, +5.9224] | 0.3248 | 0.4562 |
+| S4 | Foam F time × space | **REFUSED** | — | — | — |
+| S5 | lifetime, position+branch controlled | −0.0267 | [−0.0872, +0.0138] | 0.3650 | 0.4562 |
+| S6 | **GT rim vs interior (hand labels)** | **+0.0779** | [−0.0111, +0.1583] | 0.0925 | 0.2355 |
+
+**S1 — rim versus interior in Foam A.** Once branch composition is removed, interior minus
+rim is **+0.0397 [−0.0166, +0.1471], p = 0.094 — not resolved.** This matters for published
+work: see §5 below. And it cannot separate evaporation from the free boundary in any case —
+a rim bubble's outward face is air, not a film, and von Neumann's law is derived for
+bubbles fully surrounded by others.
+
+**S2 — Foam C is flat.** β = −0.0000 [−0.0428, +0.0485] on **310 interior bubbles**, the
+best-powered population in the project. Its interval is *narrower than Foam A's MDE*. Foam C
+has no ground truth and is guard-rejected, so this is not proof that Foam A's gradient is
+artefactual — the detector's neighbour-count error need not be the same in a foam whose
+bubbles are 0.57× the radius — but it is a real and uncomfortable contrast: **the same
+detector, on a much larger sample, finds nothing.**
+
+**S3 — Foam F.** 23 interior bubbles, β = +1.69 with an interval four units wide. Above the
+20-bubble floor by three bubbles, and uninformative. Note it is the only foam whose point
+estimate is *positive*.
+
+**S4 — Foam F time × space: REFUSED.** Splitting at the first-third boundary (420 s) leaves
+23 interior bubbles early and **18 late**, below the 20-bubble floor. **Power does not allow
+the test.** This is the place a wetness-driven spatial effect should have been strongest,
+and it cannot be run.
+
+**S5 — short- versus long-lived bubbles.** After removing the radial trend and branch,
+long minus short is **−0.0267 [−0.0872, +0.0138], p = 0.365 — no resolved difference.**
+Uncontrolled the same comparison gives +0.0527, which is not interpretable: short-lived
+bubbles are small, shrinking-branch and rim-heavy. The mentor's question 1 therefore has a
+null answer at this power.
+
+**S6 — the ground-truth rim-versus-interior contrast (its own result, hand labels only).**
+
+| population | interior − rim | [bubble bootstrap] | [7-pair block] |
+|---|---|---|---|
+| **hand labels, all bubbles** | **+0.0779** | [−0.0111, +0.1583] | [−0.0164, +0.1805] |
+| hand labels, n < 6 branch only | +0.0502 | [−0.0224, +0.1557] | [−0.0056, +0.1831] |
+| hand labels, n > 6 branch only | REFUSED (13 rim bubbles) | | |
+| Cellpose, same frames, all bubbles | +0.1995 | **[+0.0951, +0.3113]** | **[+0.0892, +0.4331]** |
+| Cellpose, n < 6 branch only | +0.1333 | **[+0.0222, +0.2393]** | **[+0.0444, +0.2889]** |
+
+Component K values (hand labels): **rim +0.322 [+0.294, +0.383], interior +0.400
+[+0.342, +0.467]**.
+
+> **The hand labels do NOT resolve a rim-versus-interior difference; Cellpose, on the same
+> bubbles in the same frames, does — and roughly doubles it.** That holds with and without
+> branch control.
+
+This is the cleanest statement the data support, and its limits are equally clear: it is
+**free of the Cellpose error**, but it **cannot separate evaporation from the free
+boundary**, it rests on **7 frame pairs**, the "all" row is **not branch-controlled** (the
+GT rim is 91% shrinking-branch), and the n > 6 branch is refused for want of rim bubbles.
+
+---
+
+## 5. Downstream changes to published statements
+
+**`docs/wetness_and_k_fragility.md` correction #4, `results_package/tables/K_exclusion_configs.csv`,
+`qc/k_robustness/exclusions_raft_edge.csv`** currently report, for Foam A, "interior K
+exceeds perimeter K (+0.433 [0.383, 0.478] vs +0.316 [0.283, 0.355])" with non-overlapping
+intervals, i.e. as a resolved spatial effect. That number is not withdrawn — it is a
+correct pooled fit — but **its reading as a spatial effect is now known to be confounded on
+two counts**, and both are measurable:
+
+1. **Branch composition.** The rim is 89% shrinking-branch with ⟨n⟩ = 4.00 against 5.7–6.1
+   inside. The same comparison done per bubble and branch-centred gives **+0.0397
+   [−0.0166, +0.1471], p = 0.094 — not resolved** (S1).
+2. **The detector.** On hand labels the interior-over-rim contrast is **+0.078, not
+   resolved**; Cellpose gives **+0.200, resolved** (S6). The detector approximately doubles
+   it.
+
+Recommended wording, if the perimeter result is quoted: *"Pooled over measurements, Foam A's
+interior K exceeds its rim K. The contrast is not resolved once branch composition is
+controlled per bubble, and hand labels on the same frames do not resolve it either, so it
+should not be read as a spatial effect."* The **Foam C and Foam F perimeter results were
+already withdrawn** and nothing here revives them.
+
+No other published number changes. The pooled K table, the K-by-period result, the sign
+change in Foam F and the wetness results are untouched — verified by the Stage-1 guard that
+reproduces `K_fits.csv` to 1e-9.
+
+---
+
+## 6. Verdict
+
+Against the four outcomes pre-committed before any of this was run:
+
+> **"Gradient present but no larger than the detector-offset band → report that it cannot
+> be distinguished from a measurement artifact."**
+
+That is the outcome.
+
+**In full.** Foam A's interior bubbles show a radial gradient in K that is statistically
+resolved (β = −0.278 [−0.437, −0.068], permutation p = 0.007) and comfortably above the
+minimum detectable effect (0.081). It is **not** distinguishable from Cellpose's own
+position-dependent neighbour-count error, which Stage 2 measured directly against hand
+labels at β_det = −0.362 [−0.769, +0.048] — larger than the signal and in the same
+direction. Removing that bias leaves **β_corr = +0.084 [−0.341, +0.523]**: consistent with
+no gradient, and consistent with a gradient of either sign.
+
+Three independent facts point the same way. Foam C, with 310 interior bubbles and the same
+detector, is **flat to within ±0.05**. The hand labels **do not resolve** a rim-versus-
+interior contrast that the detector does. And Moran's I says residual spatial structure
+survives the fit, so even the measured interval is optimistic.
+
+**What would settle it.** Not more bubbles from this detector — the MDE is already five
+times smaller than the artifact. It needs either (a) hand labels on enough consecutive
+frame pairs to estimate K per bubble from ground truth directly, which at ~55 measurements
+per bubble is far beyond the 7 pairs that exist, or (b) a detector whose `n_sides` error is
+demonstrably position-independent, which would have to be shown against hand labels first.
+The physically interesting question — whether an evaporation front leaves a radial signature
+in K — remains open, and this analysis says how large such a signature would have to be
+before this measurement chain could see it: **larger than 0.36 px² s⁻¹ per unit ρ, i.e. a
+centre-to-rim change of about 75% of K itself.**
+
+---
+
+## 7. Figures
+
+* `paper_figures/fig6_per_bubble_map.png` — the spatial map, all three foams: bubbles at
+  their mean raft-relative positions, coloured by `K_i` on a scale symmetric about each
+  foam's pooled K, rim bubbles as squares, the raft edge of a mid-sequence frame dashed.
+* `paper_figures/fig7_per_bubble_radial_profile.png` — Foam A's radial profile: interior
+  bubbles branch-adjusted, ρ-quintile medians with block-bootstrap intervals, the fitted
+  Theil-Sen slope, and **the Stage-2 null band and the measured detector band overlaid**,
+  so a reader can see directly that the data do not leave the detector band.
+
+Both are built by `dev/per_bubble_figures.py`, which re-checks the values its title and
+caption assert and stops if they have changed.
