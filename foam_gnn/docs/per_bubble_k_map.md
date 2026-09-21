@@ -239,8 +239,183 @@ position.
 
 ---
 
-## Stage 2 — pending
+## Stage 2 — the pipeline is clean; the detector is not
 
-## Stage 3 — pending
+Foam A, 30 s horizon, `K0 = +0.3667` px² s⁻¹. 1,000 realisations per configuration.
+β is reported throughout as **px² s⁻¹ per unit ρ** — the weighted least-squares slope of
+`K_i` on `rho_hull` with branch fraction as a covariate, the Stage-3 statistic, computed by
+the same function on synthetic and real data alike.
+
+### 2.0 What the null inherits
+
+Only `dA/dt` is replaced. `n_sides`, positions, lifetimes, sampling and areas are the real
+ones, so the population is built from `x` and position alone and **no synthetic draw can
+change who is in it** (guarded). Both asymmetries the mentor asked to be preserved are
+therefore present by construction, not by model:
+
+| layer | rows | usable share | mean n | frac n<6 | frac n>6 | median ρ |
+|---|---|---|---|---|---|---|
+| 1 | 4,606 | **93.1%** | 4.00 | 89.1% | 4.0% | 0.896 |
+| 2 | 3,451 | 71.9% | 6.10 | 36.7% | 35.2% | 0.691 |
+| 3 | 2,106 | 77.3% | 5.99 | 43.9% | 33.4% | 0.436 |
+| 4 | 767 | 73.1% | 5.67 | 58.9% | 14.2% | 0.255 |
+| 5 | 34 | 70.6% | 4.41 | 70.6% | 0.0% | 0.162 |
+
+Rim weighting: layer 1 contributes 4,606 rows at 93% usable against 6,358 rows at 74% for
+layers 2+. Branch composition is **non-monotone** — the shrinking-branch share falls from
+89% at layer 1 to 37% at layer 2 and then climbs back to 59–71% at layers 4–5. Both are
+carried into every null replicate.
+
+### 2.1 Noise model
+
+`sigma(A) = s·A^p` with **p = +0.190, s = 3.488**, fitted from the area-decile scale of
+Foam A's own residuals; the flat variant is `p = 0, s = 15.63`. Achieved match: robust SD
+0.7420 synthetic against 0.7415 real; area-decile scales 0.563/0.683/0.740/0.821/0.997
+against 0.641/0.593/0.740/0.791/1.136 — good except in the **largest** decile, where the
+synthetic noise is ~12% light, so the null is very slightly optimistic for big bubbles. The
+real residual is right-skewed (p5/p95 −1.33/+1.80 against −1.28/+1.28 Gaussian); the
+resampled-tail variant covers that and moves nothing.
+
+### 2.2 Null test — **PASS**
+
+| population | noise model | null median | null 95% band |
+|---|---|---|---|
+| interior (L≥2), 84 bub | size-scaled Gaussian | **−0.0006** | **[−0.0491, +0.0452]** |
+| interior | flat Gaussian | −0.0000 | [−0.0502, +0.0491] |
+| interior | size-scaled, resampled tails | +0.0007 | [−0.0478, +0.0502] |
+| all bubbles, 146 | size-scaled Gaussian | +0.0001 | [−0.0272, +0.0264] |
+| all | flat Gaussian | +0.0006 | [−0.0302, +0.0297] |
+| all | size-scaled, resampled tails | −0.0003 | [−0.0301, +0.0316] |
+
+**The recovered gradient is consistent with zero under every noise model.** Geometry,
+branch composition, rim weighting and sampling do not, by themselves, manufacture a radial
+gradient. The Stage-1 pipeline is clean in this specific sense.
+
+### 2.3 Detector-offset null — the intercept alone makes a gradient
+
+Injecting Cellpose's measured intercept `c0 = +0.4211` px² s⁻¹ (GT: −0.003) with **no**
+true gradient:
+
+| c0 | branch covariate | median β | 95% band |
+|---|---|---|---|
+| 0.2995 (c0 CI lo) | yes | +0.0737 | [+0.0180, +0.1241] |
+| **0.4211** | **yes** | **+0.1040** | **[+0.0413, +0.1606]** |
+| 0.5465 (c0 CI hi) | yes | +0.1371 | [+0.0652, +0.1990] |
+| 0.2995 | no | −0.1429 | [−0.2105, −0.0650] |
+| **0.4211** | **no** | **−0.2005** | **[−0.2862, −0.1013]** |
+| 0.5465 | no | −0.2621 | [−0.3625, −0.1378] |
+
+Two things matter here. First, **the offset alone produces a gradient two to four times the
+width of the pure null band.** Second, **the branch covariate does not remove it — it flips
+its sign**, from −0.20 to +0.10. That is expected and worth stating plainly: the offset
+enters as `c/x`, which is continuous in n, while the covariate is a branch *fraction* that
+is nearly binary at the bubble level. Adjusting for branch removes the part that acts
+through branch membership and leaves the part that acts through the magnitude of `n−6`.
+Across c0's own interval the operative band is **[+0.018, +0.199]**.
+
+### 2.4 Recovery — the minimum detectable gradient
+
+Attenuation is 1.01 — the pipeline returns injected gradients essentially unbiased.
+
+| population | null \|β\| p95 | **MDE (80% power)** | centre-to-rim ΔK over its own ρ span | as % of K0 |
+|---|---|---|---|---|
+| **interior (L≥2), 84 bubbles** | 0.0478 | **β = 0.071** | **+0.054 px² s⁻¹** over ρ 0.114–0.874 | **15%** |
+| all bubbles, 146 | 0.0270 | β = 0.043 | +0.037 px² s⁻¹ over ρ 0.114–0.963 | 10% |
+| interior, against the **operative** null (c0 present) | band [+0.041, +0.161] | **β = 0.081** | **+0.061 px² s⁻¹** | **17%** |
+
+**For Foam A's 84 interior bubbles the minimum detectable gradient is β = 0.071 px² s⁻¹ per
+unit ρ against the pure null, and β = 0.081 against the operative null that includes the
+detector's intercept — a centre-to-rim change in K of +0.054 to +0.061 px² s⁻¹, i.e. 15–17%
+of K0.** Anything smaller than that is "not detected", not "absent". Power reaches 54.6% at
+β = 0.05 and 91.2% at β = 0.08.
+
+### 2.5 Ground-truth check — **the detector's per-bubble error is position-dependent**
+
+Seven hand-labelled consecutive Foam A pairs, 409 genuinely paired bubbles (merged on the
+GT↔Cellpose correspondence, not on the `matched_both_detectors` flag, which yields 409 GT
+against 411 CP rows — not the same bubbles). Layers computed on each detector's own map;
+strata taken from the **GT** layer so the detector cannot choose its own strata.
+
+`n_sides` disagrees on **13.2%** of paired bubbles, median |Δn| = 1 — and at n = 4 a Δn of
+1 doubles `y/x`.
+
+Median (Cellpose − hand) per-bubble slope, by GT layer:
+
+| GT layer | n | median GT slope | median CP slope | median diff | [bubble boot] | [pair block] |
+|---|---|---|---|---|---|---|
+| 1 (rim) | 139 | 0.333 | 0.283 | −0.044 | [−0.117, +0.022] | [−0.192, +0.033] |
+| 2 | 99 | 0.466 | 0.433 | −0.033 | [−0.117, +0.133] | [−0.133, +0.133] |
+| **3** | 63 | 0.332 | 0.500 | **+0.167** | **[+0.028, +0.267]** | **[+0.044, +0.267]** |
+| 4 | 19 | 0.433 | 0.533 | +0.100 | [−0.033, +0.233] | [−0.017, +0.292] |
+
+Layer 3 is resolved under both interval schemes. Interior (L≥2) minus rim bias is
+**+0.111 [+0.006, +0.222]**.
+
+**Where the error comes from.** Decomposed on the same 409 pairs:
+
+* the **area** error has *no* radial gradient — slope of (dA/dt_CP − dA/dt_GT) on ρ is
+  **+0.007 [−0.622, +0.642]**;
+* the **neighbour-count** error does — slope of (n_CP − n_GT) on ρ is
+  **−0.416 [−0.588, −0.255]** neighbours per unit ρ.
+
+So this is a *topology* error, not a segmentation-area error, which is consistent with
+everything else this project has measured about `n_sides` at the raft edge.
+
+**The size of the artifact, in the Stage-3 statistic's own units** (slope of the per-bubble
+CP−GT slope difference on ρ):
+
+| population | branch cov | estimator | slope | [bubble boot] | [pair block] |
+|---|---|---|---|---|---|
+| all paired (320) | no | OLS | −0.593 | [−0.976, −0.270] | [−1.139, −0.181] |
+| all paired | no | Theil-Sen | −0.391 | [−0.589, −0.196] | [−0.732, −0.190] |
+| all paired | yes | OLS | −0.310 | [−0.616, +0.010] | [−0.703, −0.027] |
+| all paired | yes | Theil-Sen | −0.143 | [−0.335, +0.041] | [−0.384, +0.017] |
+| **interior L≥2 (181)** | **yes** | **OLS** | **−0.542** | **[−1.091, −0.068]** | **[−1.005, −0.187]** |
+| **interior L≥2** | **yes** | **Theil-Sen** | **−0.362** | **[−0.770, +0.025]** | **[−0.714, −0.130]** |
+
+OLS on a `y/x` ratio is leverage-sensitive — the failure mode this project audited in S1 —
+so Theil-Sen and a median-in-ρ-bins fit are reported beside it; all three agree in sign and
+order of magnitude. A second, independent route agrees: pooled robust K on these frames is
+rim +0.333 / interior +0.427 by hand (a real +0.094 contrast) against rim +0.283 / interior
++0.467 by Cellpose (+0.184) — **the detector roughly doubles the interior-over-rim
+contrast**, which over the relevant Δρ ≈ 0.35 is a slope near −0.26.
+
+Note the sign. The offset-null predicts **+0.10** with the covariate; the directly measured
+detector artifact is **−0.36 to −0.54**. They are consistent without the covariate (−0.20
+predicted against −0.39 measured, overlapping intervals), so the intercept model accounts
+for roughly half of the detector's position-dependent error and the ρ-dependent `n_sides`
+error accounts for the rest. **The branch covariate barely helps in the interior**
+(−0.615 → −0.542): inside the raft the offset does not act mainly through branch membership.
+
+### 2.6 Stage 2 verdict
+
+1. **The null test passes.** Nothing in the geometry, the branch composition, the rim
+   weighting or the sampling manufactures a radial gradient: −0.0006 [−0.0491, +0.0452].
+   Stage 3 is not disqualified.
+2. **The minimum detectable gradient for Foam A's 84 interior bubbles is β = 0.071**
+   (pure null) **to 0.081** (operative null) **px² s⁻¹ per unit ρ = 15–17% of K0 from
+   centre to rim.**
+3. **But the detector's own error carries a radial gradient of β ≈ −0.36 to −0.54 in the
+   interior, with intervals reaching −0.77 to −1.09.** That is **5 to 8 times** the
+   minimum detectable effect and **3 to 5 times** the detector-offset band. It is a
+   neighbour-count error, not an area error, and the branch covariate does not remove it.
+4. **Therefore the binding constraint on Stage 3 is not power — it is the detector.** Any
+   interior gradient smaller in magnitude than roughly 0.5 px² s⁻¹ per unit ρ cannot be
+   separated from Cellpose's own position-dependent `n_sides` error, in either direction.
+   The pre-registration must state this before the primary test is run, and the
+   pre-committed reporting rule "gradient present but no larger than the detector band →
+   cannot be distinguished from a measurement artifact" is the one most likely to apply.
+
+**Caveats carried forward.** The hand labels are themselves 86.6% pixel-identical to a
+watershed pre-seed (`dev/gt_preseed_overlap.py`), so GT–Cellpose agreement is partly built
+in and the ~13% that differs carries the whole signal; the GT's mean n (5.081) is well
+below the watershed's (5.681), so the hand corrections did remove the watershed's rim
+over-count rather than inheriting it. The detector band is measured on 320–409 single
+measurements from 7 frame pairs, while a `K_i` is a median of ~55 measurements: the
+Theil-Sen and binned-median estimates target the systematic part that survives that
+averaging, which is why they are quoted ahead of OLS. The top area decile's synthetic noise
+is ~12% light.
+
+## Stage 3 — pending (pre-registration to be written and committed first)
 
 ## Stage 4 — pending
